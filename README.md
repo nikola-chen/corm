@@ -18,10 +18,10 @@ If you're using an AI coding tool or an AI agent to generate code with `corm`, r
 ## Installation
 
 ```bash
-go get github.com/yourusername/corm
+go get github.com/nikola-chen/corm
 ```
 
-*(Note: Replace `github.com/yourusername/corm` with the actual repository path)*
+*(Note: Replace `github.com/nikola-chen/corm` with the actual repository path)*
 
 ## Quick Start
 

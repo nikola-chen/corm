@@ -18,10 +18,10 @@
 ## 安装
 
 ```bash
-go get github.com/yourusername/corm
+go get github.com/nikola-chen/corm
 ```
 
-*(注意：请将 `github.com/yourusername/corm` 替换为实际的仓库路径)*
+*(仓库路径已更新为 `github.com/nikola-chen/corm`，无需替换)*
 
 ## 快速开始
 
