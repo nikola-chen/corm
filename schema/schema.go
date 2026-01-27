@@ -1,0 +1,242 @@
+package schema
+
+import (
+	"reflect"
+	"strings"
+	"sync"
+	"unicode"
+)
+
+// TableNamer is an interface for structs to customize their table name.
+type TableNamer interface {
+	TableName() string
+}
+
+// Field represents a database column mapped to a struct field.
+type Field struct {
+	Name       string
+	Column     string
+	Index      []int
+	Type       reflect.Type
+	PrimaryKey bool
+	Auto       bool
+	Readonly   bool
+	OmitEmpty  bool
+}
+
+// Schema represents the metadata of a struct model.
+type Schema struct {
+	Type        reflect.Type
+	Table       string
+	Fields      []*Field
+	ByColumn    map[string]*Field
+	PrimaryKeys []*Field
+}
+
+// ExtractOptions defines options for extracting values from a struct.
+type ExtractOptions struct {
+	IncludePrimaryKey bool
+	IncludeAuto       bool
+	IncludeReadonly   bool
+	IncludeZero       bool
+}
+
+// ColumnsAndValues extracts column names and values from a struct instance based on the provided options.
+func (s *Schema) ColumnsAndValues(dest any, opts ExtractOptions) ([]string, []any, error) {
+	rv := reflect.ValueOf(dest)
+	for rv.Kind() == reflect.Pointer {
+		if rv.IsNil() {
+			return nil, nil, ErrInvalidModel
+		}
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return nil, nil, ErrInvalidModel
+	}
+
+	cols := make([]string, 0, len(s.Fields))
+	vals := make([]any, 0, len(s.Fields))
+	for _, f := range s.Fields {
+		if f.Readonly && !opts.IncludeReadonly {
+			continue
+		}
+		if f.Auto && !opts.IncludeAuto {
+			continue
+		}
+		if f.PrimaryKey && !opts.IncludePrimaryKey {
+			continue
+		}
+		fv := rv.FieldByIndex(f.Index)
+		if f.OmitEmpty && !opts.IncludeZero && fv.IsZero() {
+			continue
+		}
+		cols = append(cols, f.Column)
+		vals = append(vals, fv.Interface())
+	}
+	return cols, vals, nil
+}
+
+var cache sync.Map
+
+// Parse parses a struct model and returns its Schema.
+// It caches the result for future use.
+func Parse(model any) (*Schema, error) {
+	t := indirectType(reflect.TypeOf(model))
+	if t == nil || t.Kind() != reflect.Struct {
+		return nil, ErrInvalidModel
+	}
+
+	if v, ok := cache.Load(t); ok {
+		return v.(*Schema), nil
+	}
+
+	s, err := parseSlow(t)
+	if err != nil {
+		return nil, err
+	}
+	actual, _ := cache.LoadOrStore(t, s)
+	return actual.(*Schema), nil
+}
+
+func indirectType(t reflect.Type) reflect.Type {
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+var ErrInvalidModel = &schemaError{"corm: model must be struct or pointer to struct"}
+
+type schemaError struct{ msg string }
+
+func (e *schemaError) Error() string { return e.msg }
+
+func parseSlow(t reflect.Type) (*Schema, error) {
+	s := &Schema{
+		Type:     t,
+		Table:    defaultTableName(t),
+		ByColumn: map[string]*Field{},
+	}
+
+	if tn, ok := reflect.New(t).Interface().(TableNamer); ok {
+		if name := strings.TrimSpace(tn.TableName()); name != "" {
+			s.Table = name
+		}
+	}
+
+	parseStructFields(s, t, nil)
+
+	if len(s.PrimaryKeys) == 0 {
+		if f, ok := s.ByColumn["id"]; ok {
+			f.PrimaryKey = true
+			s.PrimaryKeys = append(s.PrimaryKeys, f)
+		}
+	}
+
+	return s, nil
+}
+
+func parseStructFields(s *Schema, t reflect.Type, parentIndex []int) {
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if sf.Anonymous && sf.Type.Kind() == reflect.Struct && sf.PkgPath == "" {
+			parseStructFields(s, sf.Type, appendIndex(parentIndex, i))
+			continue
+		}
+		if sf.PkgPath != "" {
+			continue
+		}
+
+		tag := sf.Tag.Get("db")
+		if tag == "-" {
+			continue
+		}
+
+		col, opts := parseDBTag(tag)
+		if col == "" {
+			col = toSnake(sf.Name)
+		}
+
+		f := &Field{
+			Name:      sf.Name,
+			Column:    col,
+			Index:     appendIndex(parentIndex, i),
+			Type:      sf.Type,
+			Auto:      opts["auto"] || opts["autoincr"] || opts["identity"],
+			Readonly:  opts["readonly"],
+			OmitEmpty: opts["omitempty"],
+		}
+		if opts["pk"] || sf.Tag.Get("pk") == "true" {
+			f.PrimaryKey = true
+			s.PrimaryKeys = append(s.PrimaryKeys, f)
+		}
+
+		s.Fields = append(s.Fields, f)
+		s.ByColumn[strings.ToLower(col)] = f
+	}
+}
+
+func appendIndex(parent []int, i int) []int {
+	if len(parent) == 0 {
+		return []int{i}
+	}
+	idx := make([]int, 0, len(parent)+1)
+	idx = append(idx, parent...)
+	idx = append(idx, i)
+	return idx
+}
+
+func parseDBTag(tag string) (string, map[string]bool) {
+	opts := map[string]bool{}
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return "", opts
+	}
+	parts := strings.Split(tag, ",")
+	col := strings.TrimSpace(parts[0])
+	for _, p := range parts[1:] {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			opts[p] = true
+		}
+	}
+	return col, opts
+}
+
+func defaultTableName(t reflect.Type) string {
+	return toSnake(t.Name())
+}
+
+func toSnake(s string) string {
+	if s == "" {
+		return ""
+	}
+	runes := []rune(s)
+	var b strings.Builder
+	b.Grow(len(runes) + 8)
+
+	prevLower := false
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if unicode.IsUpper(r) {
+			nextLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])
+			if i > 0 && (prevLower || nextLower) {
+				b.WriteByte('_')
+			}
+			b.WriteRune(unicode.ToLower(r))
+			prevLower = false
+			continue
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			prevLower = unicode.IsLower(r)
+			b.WriteRune(unicode.ToLower(r))
+			continue
+		}
+		if r == '_' {
+			b.WriteRune('_')
+			prevLower = false
+			continue
+		}
+	}
+	return b.String()
+}

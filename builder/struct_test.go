@@ -1,0 +1,99 @@
+package builder_test
+
+import (
+	"context"
+	"database/sql"
+	"strings"
+	"testing"
+	"time"
+
+	"corm/builder"
+	"corm/dialect"
+)
+
+type User struct {
+	ID        int       `db:"id,pk"`
+	Name      string    `db:"name"`
+	Age       int       `db:"age"`
+	CreatedAt time.Time `db:"created_at"`
+}
+
+func (u User) TableName() string {
+	return "users"
+}
+
+type mockExecutor struct {
+	sql  string
+	args []any
+}
+
+func (m *mockExecutor) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	m.sql = query
+	m.args = args
+	return nil, nil
+}
+
+func (m *mockExecutor) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	m.sql = query
+	m.args = args
+	return nil, nil
+}
+
+func (m *mockExecutor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	m.sql = query
+	m.args = args
+	return nil
+}
+
+func TestInsertRecord(t *testing.T) {
+	exec := &mockExecutor{}
+	d, _ := dialect.Get("mysql")
+
+	user := User{
+		Name:      "Alice",
+		Age:       30,
+		CreatedAt: time.Now(),
+	}
+
+	b := builder.InsertInto(exec, d, "").Model(user)
+	sqlStr, args, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(sqlStr, "INSERT INTO `users`") {
+		t.Errorf("expected INSERT INTO `users`, got %s", sqlStr)
+	}
+	if !strings.Contains(sqlStr, "`name`") || !strings.Contains(sqlStr, "`age`") {
+		t.Errorf("missing columns in SQL: %s", sqlStr)
+	}
+	if len(args) != 3 {
+		t.Errorf("expected 3 args, got %d", len(args))
+	}
+}
+
+func TestUpdateModel(t *testing.T) {
+	exec := &mockExecutor{}
+	d, _ := dialect.Get("postgres")
+
+	user := User{
+		Name: "Bob",
+		Age:  25,
+	}
+
+	b := builder.Update(exec, d, "").SetStruct(user).Where("id = ?", 1)
+	sqlStr, args, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(sqlStr, `UPDATE "users" SET`) {
+		t.Errorf("expected UPDATE \"users\" SET, got %s", sqlStr)
+	}
+	if !strings.Contains(sqlStr, `"name" = $`) || !strings.Contains(sqlStr, `"age" = $`) {
+		t.Errorf("missing columns in SQL: %s", sqlStr)
+	}
+	if len(args) != 4 {
+		t.Errorf("expected 4 args, got %d", len(args))
+	}
+}

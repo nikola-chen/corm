@@ -1,0 +1,37 @@
+# corm (Go) — LLM/Agent Reference
+
+This repository provides a lightweight ORM/query-builder for Go with MySQL and PostgreSQL support.
+
+## What to read first
+
+- AI/Agent usage guide: AI_AGENT_GUIDE.md
+- English README: README.md
+- Chinese README: README_CN.md
+
+## Safe usage rules (must follow)
+
+- Never concatenate untrusted input into SQL strings (Where/Join/Having/OrderBy).
+- Always use placeholder args: `Where("id = ?", id)`.
+- Never treat user input as identifiers (table/column names). Use constants or `TableName()`/`db` tags.
+
+## Primary entrypoints
+
+- Engine: `engine.Open`, `engine.WithDB`, `(*Engine).Transaction`
+- Builders:
+  - SELECT: `e.Select(...).From(...).Where(...).Limit(...).Offset(...).All/One`
+  - INSERT: `e.InsertInto(\"...\").Model(&obj)` or `Columns(...).Values(...)`
+  - UPDATE: `e.Update(\"...\").SetStruct(&obj)` or `Set(...).Where(...)`
+  - DELETE: `e.DeleteFrom(\"...\").Where(...)`
+- Expressions: `clause.In`, `clause.And`, `clause.Or`, `clause.Raw`
+
+## Scanning targets
+
+- `[]Struct` / `[]*Struct`
+- `Struct` / `*Struct`
+- `[]map[string]T` and `map[string]T` (map key must be string)
+
+## Dialects
+
+- MySQL: `?` placeholders
+- Postgres: `$1,$2,...` placeholders
+

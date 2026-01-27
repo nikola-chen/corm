@@ -1,0 +1,27 @@
+package builder
+
+import (
+	"context"
+	"errors"
+
+	"corm/exec"
+)
+
+func (b *InsertBuilder) One(ctx context.Context, dest any) error {
+	if len(b.returning) == 0 {
+		return errors.New("corm: insert.One requires Returning(...)")
+	}
+	if !b.d.SupportsReturning() {
+		return errors.New("corm: dialect does not support returning")
+	}
+	sqlStr, args, err := b.SQL()
+	if err != nil {
+		return err
+	}
+	rows, err := b.exec.QueryContext(ctx, sqlStr, args...)
+	if err != nil {
+		return err
+	}
+	return exec.ScanOne(rows, dest)
+}
+
