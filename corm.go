@@ -3,7 +3,7 @@ package corm
 import (
 	"database/sql"
 
-	"corm/engine"
+	"github.com/nikola-chen/corm/engine"
 )
 
 type DB = engine.Engine

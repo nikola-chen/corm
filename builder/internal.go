@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"corm/dialect"
+	"github.com/nikola-chen/corm/dialect"
 )
 
 func quoteMaybe(d dialect.Dialect, ident string) string {

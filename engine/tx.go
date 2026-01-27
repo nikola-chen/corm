@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	"corm/builder"
-	"corm/dialect"
+	"github.com/nikola-chen/corm/builder"
+	"github.com/nikola-chen/corm/dialect"
 )
 
 type Tx struct {

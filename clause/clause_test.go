@@ -3,7 +3,7 @@ package clause_test
 import (
 	"testing"
 
-	"corm/clause"
+	"github.com/nikola-chen/corm/clause"
 )
 
 func TestIn(t *testing.T) {

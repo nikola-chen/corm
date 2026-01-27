@@ -1,6 +1,6 @@
 package builder
 
-import "corm/dialect"
+import "github.com/nikola-chen/corm/dialect"
 
 func Select(exec executor, d dialect.Dialect, columns ...string) *SelectBuilder {
 	return newSelect(exec, d, columns)

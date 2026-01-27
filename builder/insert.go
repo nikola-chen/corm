@@ -7,8 +7,8 @@ import (
 	"errors"
 	"strings"
 
-	"corm/dialect"
-	"corm/schema"
+	"github.com/nikola-chen/corm/dialect"
+	"github.com/nikola-chen/corm/schema"
 )
 
 // InsertBuilder builds INSERT statements.

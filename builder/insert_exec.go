@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"corm/exec"
+	"github.com/nikola-chen/corm/exec"
 )
 
 func (b *InsertBuilder) One(ctx context.Context, dest any) error {

@@ -3,7 +3,7 @@ package schema_test
 import (
 	"testing"
 
-	"corm/schema"
+	"github.com/nikola-chen/corm/schema"
 )
 
 type User struct {

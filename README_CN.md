@@ -21,8 +21,6 @@
 go get github.com/nikola-chen/corm
 ```
 
-*(仓库路径已更新为 `github.com/nikola-chen/corm`，无需替换)*
-
 ## 快速开始
 
 ### 连接数据库
@@ -34,7 +32,7 @@ import (
 	"context"
 	"time"
 
-	"corm/engine"
+	"github.com/nikola-chen/corm/engine"
 	_ "github.com/go-sql-driver/mysql"
 	// _ "github.com/lib/pq" // for postgres
 )
@@ -178,7 +176,7 @@ import (
 	"fmt"
 	"time"
 
-	"corm/engine"
+	"github.com/nikola-chen/corm/engine"
 	_ "github.com/go-sql-driver/mysql"
 )
 

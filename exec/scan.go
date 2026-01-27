@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"corm/schema"
+	"github.com/nikola-chen/corm/schema"
 )
 
 type structPlanKey struct {

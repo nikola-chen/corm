@@ -21,8 +21,6 @@ If you're using an AI coding tool or an AI agent to generate code with `corm`, r
 go get github.com/nikola-chen/corm
 ```
 
-*(Note: Replace `github.com/nikola-chen/corm` with the actual repository path)*
-
 ## Quick Start
 
 ### Connection
@@ -34,7 +32,7 @@ import (
 	"context"
 	"time"
 
-	"corm/engine"
+	"github.com/nikola-chen/corm/engine"
 	_ "github.com/go-sql-driver/mysql"
 	// _ "github.com/lib/pq" // for postgres
 )
@@ -178,8 +176,8 @@ import (
 	"fmt"
 	"time"
 
-	"corm/engine"
-	"corm/clause"
+	"github.com/nikola-chen/corm/engine"
+	"github.com/nikola-chen/corm/clause"
 	_ "github.com/go-sql-driver/mysql"
 )
 

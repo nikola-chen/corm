@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"corm/exec"
+	"github.com/nikola-chen/corm/exec"
 )
 
 func (b *SelectBuilder) All(ctx context.Context, dest any) error {

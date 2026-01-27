@@ -7,8 +7,8 @@ import (
 	"errors"
 	"strings"
 
-	"corm/clause"
-	"corm/dialect"
+	"github.com/nikola-chen/corm/clause"
+	"github.com/nikola-chen/corm/dialect"
 )
 
 // DeleteBuilder builds DELETE statements.

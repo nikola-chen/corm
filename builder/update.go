@@ -7,9 +7,9 @@ import (
 	"errors"
 	"strings"
 
-	"corm/clause"
-	"corm/dialect"
-	"corm/schema"
+	"github.com/nikola-chen/corm/clause"
+	"github.com/nikola-chen/corm/dialect"
+	"github.com/nikola-chen/corm/schema"
 )
 
 type setItem struct {
