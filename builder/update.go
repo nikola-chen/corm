@@ -60,6 +60,11 @@ func (b *UpdateBuilder) IncludeZero() *UpdateBuilder {
 	return b
 }
 
+// Model is an alias for SetStruct.
+func (b *UpdateBuilder) Model(dest any) *UpdateBuilder {
+	return b.SetStruct(dest)
+}
+
 // SetStruct sets columns and values from a struct.
 func (b *UpdateBuilder) SetStruct(dest any) *UpdateBuilder {
 	s, err := schema.Parse(dest)
@@ -108,9 +113,67 @@ func (b *UpdateBuilder) Where(sql string, args ...any) *UpdateBuilder {
 	return b
 }
 
+func (b *UpdateBuilder) WhereRaw(sql string, args ...any) *UpdateBuilder {
+	return b.Where(sql, args...)
+}
+
+func (b *UpdateBuilder) WhereEq(column string, value any) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	col, ok := quoteIdentStrict(b.d, column)
+	if !ok {
+		b.err = errors.New("corm: invalid column identifier")
+		return b
+	}
+	return b.Where(col+" = ?", value)
+}
+
 // WhereIn adds a WHERE IN condition.
 func (b *UpdateBuilder) WhereIn(column string, args ...any) *UpdateBuilder {
 	return b.WhereExpr(clause.In(column, args...))
+}
+
+func (b *UpdateBuilder) WhereInIdent(column string, args ...any) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	col, ok := quoteIdentStrict(b.d, column)
+	if !ok {
+		b.err = errors.New("corm: invalid column identifier")
+		return b
+	}
+	return b.WhereExpr(clause.In(col, args...))
+}
+
+func (b *UpdateBuilder) WhereLike(column string, value any) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	col, ok := quoteIdentStrict(b.d, column)
+	if !ok {
+		b.err = errors.New("corm: invalid column identifier")
+		return b
+	}
+	return b.Where(col+" LIKE ?", value)
+}
+
+// WhereSubquery adds a condition with a subquery: "column op (subquery)".
+func (b *UpdateBuilder) WhereSubquery(column, op string, sub *SelectBuilder) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	sqlStr, args, err := sub.sqlRaw()
+	if err != nil {
+		b.err = err
+		return b
+	}
+	return b.Where(column+" "+op+" ("+sqlStr+")", args...)
+}
+
+// WhereInSubquery adds a "column IN (subquery)" condition.
+func (b *UpdateBuilder) WhereInSubquery(column string, sub *SelectBuilder) *UpdateBuilder {
+	return b.WhereSubquery(column, "IN", sub)
 }
 
 
@@ -125,6 +188,15 @@ func (b *UpdateBuilder) WhereExpr(e clause.Expr) *UpdateBuilder {
 
 // SQL generates the SQL query and arguments.
 func (b *UpdateBuilder) SQL() (string, []any, error) {
+	sqlStr, args, err := b.sqlRaw()
+	if err != nil {
+		return "", nil, err
+	}
+	rewritten, _ := b.d.RewritePlaceholders(sqlStr, 1)
+	return rewritten, args, nil
+}
+
+func (b *UpdateBuilder) sqlRaw() (string, []any, error) {
 	if b.err != nil {
 		return "", nil, b.err
 	}
@@ -138,7 +210,6 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 	var args []any
 	var buf bytes.Buffer
 	buf.Grow(128)
-	argIndex := 1
 
 	buf.WriteString("UPDATE ")
 	buf.WriteString(quoteMaybe(b.d, b.table))
@@ -150,23 +221,28 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 		}
 		buf.WriteString(quoteMaybe(b.d, s.column))
 		buf.WriteString(" = ")
-		buf.WriteString(b.d.Placeholder(argIndex))
-		argIndex++
+		buf.WriteString("?")
 		args = append(args, s.value)
 	}
 
 	if len(b.where) > 0 {
 		buf.WriteString(" WHERE ")
-		for i, w := range b.where {
-			if i > 0 {
+		wrote := 0
+		for _, w := range b.where {
+			if strings.TrimSpace(w.SQL) == "" {
+				continue
+			}
+			if wrote > 0 {
 				buf.WriteString(" AND ")
 			}
 			buf.WriteString("(")
-			part, next := b.d.RewritePlaceholders(w.SQL, argIndex)
-			buf.WriteString(part)
+			buf.WriteString(w.SQL)
 			buf.WriteString(")")
 			args = append(args, w.Args...)
-			argIndex = next
+			wrote++
+		}
+		if wrote == 0 {
+			buf.Truncate(buf.Len() - len(" WHERE "))
 		}
 	}
 

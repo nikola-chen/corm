@@ -118,22 +118,29 @@ err := e.Select().
 	From("users").
 	WhereIn("id", []int{1, 2, 3}).
 	All(ctx, &users)
+
+// If the column comes from untrusted input, prefer WhereInIdent.
+err = e.Select().
+    From("users").
+    WhereInIdent("id", []int{1, 2, 3}).
+    All(ctx, &users)
 ```
 
 #### Update
 
 ```go
-// Update using struct (fields tagged with `omitempty` are skipped unless IncludeZero is enabled)
+// 使用结构体更新（标记了 `omitempty` 的字段在未启用 IncludeZero 时会被跳过）
 u.Age = 31
 _, err := e.Update("users").
-	SetStruct(&u).
+	Model(&u). // 也可以使用 SetStruct
 	Where("id = ?", u.ID).
 	Exec(ctx)
 
-// Update specific columns
+// 更新指定列
 _, err := e.Update("users").
 	Set("age", 32).
 	Where("name = ?", "Alice").
+	WhereLike("email", "%@example.com"). // 使用 WhereLike
 	Exec(ctx)
 ```
 
@@ -328,6 +335,144 @@ For complex queries, you can use `Raw` clauses, but be careful with SQL injectio
 e.Select().
     WhereRaw("age > ? AND name LIKE ?", 18, "A%").
     All(ctx, &users)
+```
+
+## Advanced Features
+
+`corm` now supports a wide range of advanced SQL features.
+
+### Logical Operators
+
+```go
+import "github.com/nikola-chen/corm/clause"
+
+e.Select().From("users").
+    WhereExpr(clause.Not(clause.Raw("age < ?", 18))).
+    WhereExpr(clause.IsNull("deleted_at")).
+    WhereExpr(clause.IsNotNull("email")).
+    All(ctx, &users)
+```
+
+### JOINs
+
+Support for `LeftJoin`, `RightJoin`, `InnerJoin`, `CrossJoin`, `FullJoin`.
+
+Basic usage (Raw ON condition):
+
+```go
+e.Select("u.name", "o.amount").
+    From("users u").
+    LeftJoin("orders o", "u.id = o.user_id").
+    Where("o.amount > ?", 100).
+    All(ctx, &results)
+```
+
+Safe usage with arguments (using `LeftJoinOn`, etc.):
+
+```go
+import "github.com/nikola-chen/corm/clause"
+
+e.Select("u.name").
+    FromAs("users", "u").
+    LeftJoinOn("orders o", clause.And(
+        clause.Raw("u.id = o.user_id"),
+        clause.Eq("o.status", "active"), // Bind: "active"
+    )).
+    All(ctx, &results)
+```
+
+### Nested Transactions (Savepoints)
+
+`corm` supports nested transactions via `SAVEPOINT`. You can call `tx.Transaction` inside a transaction block.
+
+```go
+import (
+    "errors"
+
+    "github.com/nikola-chen/corm/engine"
+)
+
+err := e.Transaction(ctx, func(tx *engine.Tx) error {
+    if _, err := tx.InsertInto("logs").Values("Start").Exec(ctx); err != nil {
+        return err
+    }
+
+    _ = tx.Transaction(ctx, func(subTx *engine.Tx) error {
+        if _, err := subTx.InsertInto("users").Values("New User").Exec(ctx); err != nil {
+            return err
+        }
+        return errors.New("oops")
+    })
+
+    return nil
+})
+```
+
+### Subqueries
+
+**Nested SELECT in FROM:**
+
+```go
+sub := e.Select("id", "name").From("users").Where("age > ?", 18)
+
+e.Select("u.name").
+    FromSelect(sub, "u"). // SELECT ... FROM (SELECT ...) AS u
+    All(ctx, &results)
+```
+
+**Subquery in WHERE:**
+
+```go
+sub := e.Select("id").From("banned_users")
+
+e.Select().From("users").
+    WhereInSubquery("id", sub). // WHERE id IN (SELECT id FROM banned_users)
+    All(ctx, &users)
+```
+
+**INSERT INTO ... SELECT:**
+
+```go
+sub := e.Select("id", "name").From("old_users")
+
+e.InsertInto("new_users").
+    Columns("id", "name").
+    FromSelect(sub).
+    Exec(ctx)
+```
+
+### Aggregates
+
+Helpers for `Count`, `Sum`, `Avg`, `Max`, `Min`.
+
+```go
+type Agg struct {
+    Cnt    int     `db:"cnt"`
+    AvgAge float64 `db:"avg_age"`
+}
+var a Agg
+err := e.Select(
+    clause.Alias(clause.Count("id"), "cnt"),
+    clause.Alias(clause.Avg("age"), "avg_age"),
+).
+    From("users").
+    One(ctx, &a)
+```
+
+### UNION / UNION ALL
+
+```go
+q1 := e.Select("id").From("users_2023")
+q2 := e.Select("id").From("users_2024")
+
+// SELECT id FROM users_2023 UNION ALL SELECT id FROM users_2024
+q1.UnionAll(q2).All(ctx, &ids)
+```
+
+### DISTINCT & TOP
+
+```go
+e.Select("name").From("users").Distinct().Top(5).All(ctx, &names)
 ```
 
 ## License

@@ -46,22 +46,25 @@ func (l *loggingExecutor) log(query string, args []any, dur time.Duration, err e
 		return
 	}
 	if l.cfg.LogArgs {
-		l.logger.Printf("sql=%s args=%s dur=%s err=%v", query, formatArgs(args), dur, err)
+		l.logger.Printf("sql=%s args=%s dur=%s err=%v", query, formatArgs(args, l.cfg.ArgFormatter), dur, err)
 		return
 	}
 	l.logger.Printf("sql=%s argc=%d dur=%s err=%v", query, len(args), dur, err)
 }
 
-func formatArgs(args []any) string {
+func formatArgs(args []any, argFormatter func(any) string) string {
 	const maxItems = 20
 	const maxLen = 512
+	if argFormatter == nil {
+		argFormatter = defaultArgFormatter
+	}
 	var b strings.Builder
 	b.WriteByte('[')
 	for i := 0; i < len(args) && i < maxItems; i++ {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString(fmt.Sprintf("%v", args[i]))
+		b.WriteString(argFormatter(args[i]))
 		if b.Len() > maxLen {
 			b.WriteString("…")
 			break
@@ -75,6 +78,26 @@ func formatArgs(args []any) string {
 	}
 	b.WriteByte(']')
 	return b.String()
+}
+
+func defaultArgFormatter(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return "null"
+	case string:
+		if len(x) > 32 {
+			return fmt.Sprintf("redacted(len=%d)", len(x))
+		}
+		return fmt.Sprintf("%q", x)
+	case []byte:
+		return fmt.Sprintf("bytes(len=%d)", len(x))
+	default:
+		s := fmt.Sprintf("%v", v)
+		if len(s) > 64 {
+			return s[:64] + "…"
+		}
+		return s
+	}
 }
 
 func (e *Engine) executor() coreExecutor {
@@ -96,4 +119,3 @@ func (t *Tx) executor() coreExecutor {
 	}
 	return &loggingExecutor{inner: t.tx, logger: t.logger, cfg: t.cfg}
 }
-

@@ -14,6 +14,7 @@
 - 插入结构体：`e.InsertInto("").Model(&obj).Exec(ctx)`（会从 `TableName()` 推导表名）
 - 更新结构体：`e.Update("").SetStruct(&obj).Where("id = ?", obj.ID).Exec(ctx)`
 - 事务：`e.Transaction(ctx, func(tx *engine.Tx) error { ... })`
+- 嵌套事务（Savepoint）：`tx.Transaction(ctx, func(subTx *engine.Tx) error { ... })`
 
 ---
 
@@ -21,7 +22,7 @@
 
 - `engine/`：对外入口（连接、事务、配置、SQL 日志）
 - `builder/`：链式 Query Builder（SELECT/INSERT/UPDATE/DELETE）与 SQL 生成
-- `clause/`：可复用表达式（`And/Or/In/Raw`）
+- `clause/`：可复用表达式（`And/Or/In/Raw/Not/IsNull/IsNotNull`，以及聚合函数辅助）
 - `schema/`：结构体字段解析（`db` tag、`TableName()`、字段策略）
 - `exec/`：结果集扫描（ScanAll/ScanOne）
 - `dialect/`：方言（MySQL/PostgreSQL 占位符与标识符引用）
@@ -53,10 +54,17 @@ q := e.Select().From("users").Where("id = " + userInput)
 - 结构体 `TableName()`（推荐）
 - 结构体 `db:"col"` tag（推荐）
 
+推荐优先使用更“安全默认”的接口：`FromIdent/WhereEq/OrderByIdent`（只接受简单标识符或 dotted ident），而不是把用户输入直接传给 `From/Where/OrderBy`。
+
 ### 3.3 PostgreSQL 的占位符规则
 
-`corm` 在 PostgreSQL 下会生成 `$1,$2,...`；MySQL 下使用 `?`。
-对于 `Where("x = ?", v)` 这种 Raw 片段，内部会做占位符重写。
+`corm` 在 PostgreSQL 下会输出 `$1,$2,...`；MySQL 下使用 `?`。
+库内部以 `?` 作为统一占位符，并在最终生成 SQL 时统一重写，因此 **子查询/UNION 等组合场景也能保持编号连续**。
+
+### 3.4 日志与敏感信息
+
+`Config.LogArgs` 会把参数值写入日志，可能泄露密码/Token/PII。生产环境建议关闭，必要时仅在短时间排障窗口开启，并确保日志系统具备脱敏与访问控制。
+如确需输出参数，优先配置 `Config.ArgFormatter`，对 `string/[]byte` 做截断或脱敏。
 
 ---
 
@@ -77,13 +85,24 @@ err := e.Select("id", "name").
 
 常用：
 - `From(table)`
+- `FromIdent(table)`（仅允许标识符）
+- `FromAs(table, alias)`（安全别名）
 - `Where(sql, args...)`
+- `WhereRaw(sql, args...)`
+- `WhereEq(column, value)`（仅允许标识符）
 - `WhereExpr(clause.Expr)`
 - `WhereIn(column, values...)`
+- `WhereInIdent(column, values...)`（仅允许标识符；推荐用于不可信输入）
 - `Join(joinSQL)`（需要自行写 `LEFT JOIN ... ON ...` 片段；不要拼接用户输入）
+- `JoinRaw(joinSQL)`
+- `JoinExpr(joinType, table, onExpr)`（支持参数绑定）
+- `LeftJoinOn/RightJoinOn/InnerJoinOn(table, onExpr)`（推荐）
+- `LeftJoinAs/RightJoinAs/InnerJoinAs/FullJoinAs(table, alias, onExpr)`（安全别名 + 参数绑定）
 - `GroupBy(cols...)`
 - `Having(sql, args...)`
+- `HavingRaw(sql, args...)`
 - `OrderBy(column, "ASC|DESC")` / `OrderByAsc` / `OrderByDesc`
+- `OrderByRaw(raw)` / `OrderByIdent(column, dir)`
 - `Limit(limit)` / `Offset(offset)` / `LimitOffset(limit, offset)`
 
 ### 4.2 INSERT
@@ -235,4 +254,3 @@ func CreateUser(ctx context.Context, e *engine.Engine, name string) error {
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-

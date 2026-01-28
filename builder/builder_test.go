@@ -105,3 +105,89 @@ func TestInsertReturningMySQLIgnored(t *testing.T) {
 		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
 	}
 }
+
+func TestUpdateModelAlias(t *testing.T) {
+	d, _ := dialect.Get("mysql")
+	
+	type User struct {
+		ID   int    `db:"id"`
+		Name string `db:"name"`
+	}
+	u := User{ID: 1, Name: "bob"}
+
+	q := builder.Update(nil, d, "").
+		Model(&u).
+		Where("id = ?", 1)
+
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	// Note: sets order is not guaranteed by map iteration in SetStruct if we used map,
+	// but here we use struct so it depends on schema.Parse order which is field index order.
+	// ID is field 0, Name is field 1.
+	// But ExtractOptions logic might skip some fields?
+	// By default IncludePrimaryKey is false. So ID is skipped.
+	// Only Name is updated.
+	
+	// struct name is User, default table name is "user" (snake_case)
+	// schema parser uses GORM-like convention: CamelCase -> snake_case
+	
+	wantSQL := "UPDATE `user` SET `name` = ? WHERE (id = ?)"
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+	
+	wantArgs := []any{"bob", 1}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args mismatch:\nwant: %#v\ngot : %#v", wantArgs, args)
+	}
+}
+
+func TestUpdateHelpers(t *testing.T) {
+	d, _ := dialect.Get("postgres")
+	
+	q := builder.Update(nil, d, "users").
+		Set("status", "active").
+		WhereLike("name", "A%").
+		WhereSubquery("age", ">", builder.Select(nil, d, "avg(age)").From("users"))
+
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := `UPDATE "users" SET "status" = $1 WHERE ("name" LIKE $2) AND (age > (SELECT avg(age) FROM "users"))`
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+	
+	wantArgs := []any{"active", "A%"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args mismatch:\nwant: %#v\ngot : %#v", wantArgs, args)
+	}
+}
+
+func TestDeleteHelpers(t *testing.T) {
+	d, _ := dialect.Get("postgres")
+	
+	q := builder.DeleteFrom(nil, d, "users").
+		WhereLike("email", "%@spam.com").
+		WhereInSubquery("id", builder.Select(nil, d, "user_id").From("blacklisted"))
+
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := `DELETE FROM "users" WHERE ("email" LIKE $1) AND (id IN (SELECT "user_id" FROM "blacklisted"))`
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+	
+	wantArgs := []any{"%@spam.com"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args mismatch:\nwant: %#v\ngot : %#v", wantArgs, args)
+	}
+}

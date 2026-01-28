@@ -25,6 +25,8 @@ type InsertBuilder struct {
 	includeAuto       bool
 	includeReadonly   bool
 	includeZero       bool
+
+	fromSelect *SelectBuilder
 }
 
 func newInsert(exec executor, d dialect.Dialect, table string) *InsertBuilder {
@@ -52,6 +54,12 @@ func (b *InsertBuilder) IncludeReadonly() *InsertBuilder {
 // IncludeZero includes zero-value fields in the INSERT statement.
 func (b *InsertBuilder) IncludeZero() *InsertBuilder {
 	b.includeZero = true
+	return b
+}
+
+// FromSelect sets a SELECT statement to insert from.
+func (b *InsertBuilder) FromSelect(sb *SelectBuilder) *InsertBuilder {
+	b.fromSelect = sb
 	return b
 }
 
@@ -129,14 +137,20 @@ func (b *InsertBuilder) Returning(cols ...string) *InsertBuilder {
 
 // SQL generates the SQL query and arguments.
 func (b *InsertBuilder) SQL() (string, []any, error) {
+	sqlStr, args, err := b.sqlRaw()
+	if err != nil {
+		return "", nil, err
+	}
+	rewritten, _ := b.d.RewritePlaceholders(sqlStr, 1)
+	return rewritten, args, nil
+}
+
+func (b *InsertBuilder) sqlRaw() (string, []any, error) {
 	if b.err != nil {
 		return "", nil, b.err
 	}
 	if strings.TrimSpace(b.table) == "" {
 		return "", nil, errors.New("corm: missing table for insert")
-	}
-	if len(b.rows) == 0 {
-		return "", nil, errors.New("corm: missing values for insert")
 	}
 	if len(b.columns) == 0 {
 		return "", nil, errors.New("corm: missing columns for insert")
@@ -145,7 +159,6 @@ func (b *InsertBuilder) SQL() (string, []any, error) {
 	var args []any
 	var buf bytes.Buffer
 	buf.Grow(128)
-	argIndex := 1
 
 	buf.WriteString("INSERT INTO ")
 	buf.WriteString(quoteMaybe(b.d, b.table))
@@ -156,25 +169,38 @@ func (b *InsertBuilder) SQL() (string, []any, error) {
 		}
 		buf.WriteString(quoteMaybe(b.d, c))
 	}
-	buf.WriteString(") VALUES ")
+	buf.WriteString(")")
 
-	for r, row := range b.rows {
-		if len(row) != len(b.columns) {
-			return "", nil, errors.New("corm: insert values length mismatch columns")
+	if b.fromSelect != nil {
+		buf.WriteString(" ")
+		subSQL, subArgs, err := b.fromSelect.sqlRaw()
+		if err != nil {
+			return "", nil, err
 		}
-		if r > 0 {
-			buf.WriteString(", ")
+		buf.WriteString(subSQL)
+		args = append(args, subArgs...)
+	} else {
+		if len(b.rows) == 0 {
+			return "", nil, errors.New("corm: missing values for insert")
 		}
-		buf.WriteString("(")
-		for i := range row {
-			if i > 0 {
+		buf.WriteString(" VALUES ")
+		for r, row := range b.rows {
+			if len(row) != len(b.columns) {
+				return "", nil, errors.New("corm: insert values length mismatch columns")
+			}
+			if r > 0 {
 				buf.WriteString(", ")
 			}
-			buf.WriteString(b.d.Placeholder(argIndex))
-			argIndex++
+			buf.WriteString("(")
+			for i := range row {
+				if i > 0 {
+					buf.WriteString(", ")
+				}
+				buf.WriteString("?")
+			}
+			buf.WriteString(")")
+			args = append(args, row...)
 		}
-		buf.WriteString(")")
-		args = append(args, row...)
 	}
 
 	if len(b.returning) > 0 && b.d.SupportsReturning() {

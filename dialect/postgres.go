@@ -33,6 +33,9 @@ func isDollarTag(s string) bool {
 }
 
 func (d postgresDialect) RewritePlaceholders(sql string, startIndex int) (string, int) {
+	if strings.IndexByte(sql, '?') < 0 {
+		return sql, startIndex
+	}
 	var b bytes.Buffer
 	b.Grow(len(sql) + 8)
 

@@ -17,6 +17,7 @@ type DeleteBuilder struct {
 	d     dialect.Dialect
 	table string
 	where []clause.Expr
+	err   error
 }
 
 func newDelete(exec executor, d dialect.Dialect, table string) *DeleteBuilder {
@@ -30,9 +31,67 @@ func (b *DeleteBuilder) Where(sql string, args ...any) *DeleteBuilder {
 	return b
 }
 
+func (b *DeleteBuilder) WhereRaw(sql string, args ...any) *DeleteBuilder {
+	return b.Where(sql, args...)
+}
+
+func (b *DeleteBuilder) WhereEq(column string, value any) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	col, ok := quoteIdentStrict(b.d, column)
+	if !ok {
+		b.err = errors.New("corm: invalid column identifier")
+		return b
+	}
+	return b.Where(col+" = ?", value)
+}
+
 // WhereIn adds a WHERE IN condition.
 func (b *DeleteBuilder) WhereIn(column string, args ...any) *DeleteBuilder {
 	return b.WhereExpr(clause.In(column, args...))
+}
+
+func (b *DeleteBuilder) WhereInIdent(column string, args ...any) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	col, ok := quoteIdentStrict(b.d, column)
+	if !ok {
+		b.err = errors.New("corm: invalid column identifier")
+		return b
+	}
+	return b.WhereExpr(clause.In(col, args...))
+}
+
+func (b *DeleteBuilder) WhereLike(column string, value any) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	col, ok := quoteIdentStrict(b.d, column)
+	if !ok {
+		b.err = errors.New("corm: invalid column identifier")
+		return b
+	}
+	return b.Where(col+" LIKE ?", value)
+}
+
+// WhereSubquery adds a condition with a subquery: "column op (subquery)".
+func (b *DeleteBuilder) WhereSubquery(column, op string, sub *SelectBuilder) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	sqlStr, args, err := sub.sqlRaw()
+	if err != nil {
+		b.err = err
+		return b
+	}
+	return b.Where(column+" "+op+" ("+sqlStr+")", args...)
+}
+
+// WhereInSubquery adds a "column IN (subquery)" condition.
+func (b *DeleteBuilder) WhereInSubquery(column string, sub *SelectBuilder) *DeleteBuilder {
+	return b.WhereSubquery(column, "IN", sub)
 }
 
 // WhereExpr adds a clause.Expr as a WHERE condition.
@@ -46,6 +105,18 @@ func (b *DeleteBuilder) WhereExpr(e clause.Expr) *DeleteBuilder {
 
 // SQL generates the SQL query and arguments.
 func (b *DeleteBuilder) SQL() (string, []any, error) {
+	sqlStr, args, err := b.sqlRaw()
+	if err != nil {
+		return "", nil, err
+	}
+	rewritten, _ := b.d.RewritePlaceholders(sqlStr, 1)
+	return rewritten, args, nil
+}
+
+func (b *DeleteBuilder) sqlRaw() (string, []any, error) {
+	if b.err != nil {
+		return "", nil, b.err
+	}
 	if strings.TrimSpace(b.table) == "" {
 		return "", nil, errors.New("corm: missing table for delete")
 	}
@@ -53,23 +124,28 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 	var args []any
 	var buf bytes.Buffer
 	buf.Grow(96)
-	argIndex := 1
 
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(quoteMaybe(b.d, b.table))
 
 	if len(b.where) > 0 {
 		buf.WriteString(" WHERE ")
-		for i, w := range b.where {
-			if i > 0 {
+		wrote := 0
+		for _, w := range b.where {
+			if strings.TrimSpace(w.SQL) == "" {
+				continue
+			}
+			if wrote > 0 {
 				buf.WriteString(" AND ")
 			}
 			buf.WriteString("(")
-			part, next := b.d.RewritePlaceholders(w.SQL, argIndex)
-			buf.WriteString(part)
+			buf.WriteString(w.SQL)
 			buf.WriteString(")")
 			args = append(args, w.Args...)
-			argIndex = next
+			wrote++
+		}
+		if wrote == 0 {
+			buf.Truncate(buf.Len() - len(" WHERE "))
 		}
 	}
 

@@ -56,3 +56,29 @@ func isSimpleIdent(s string) bool {
 	return true
 }
 
+func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
+	ident = strings.TrimSpace(ident)
+	if ident == "" {
+		return "", false
+	}
+	if ident == "*" {
+		return "*", true
+	}
+	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;") {
+		return "", false
+	}
+	if strings.Contains(ident, "\"") || strings.Contains(ident, "`") {
+		return "", false
+	}
+
+	parts := strings.Split(ident, ".")
+	quoted := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if !isSimpleIdent(p) {
+			return "", false
+		}
+		quoted = append(quoted, d.QuoteIdent(p))
+	}
+	return strings.Join(quoted, "."), true
+}

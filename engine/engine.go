@@ -27,6 +27,9 @@ type Config struct {
 	LogSQL bool
 	// LogArgs enables argument logging in SQL logs.
 	LogArgs bool
+	// ArgFormatter formats each argument when LogArgs is enabled.
+	// If nil, a safe default formatter is used.
+	ArgFormatter func(any) string
 	// SlowQuery sets the threshold for slow query logging.
 	SlowQuery time.Duration
 }
