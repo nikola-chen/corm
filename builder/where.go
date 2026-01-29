@@ -180,3 +180,48 @@ func (wb *whereBuilder) appendWhere(buf *bytes.Buffer, ab *argBuilder) error {
 	}
 	return nil
 }
+
+func (wb *whereBuilder) appendAndWhere(buf *bytes.Buffer, ab *argBuilder) error {
+	if len(wb.items) == 0 {
+		return nil
+	}
+	wrote := 0
+	for _, w := range wb.items {
+		switch w.kind {
+		case whereExpr:
+			if strings.TrimSpace(w.expr.SQL) == "" {
+				continue
+			}
+			buf.WriteString(" AND (")
+			if err := ab.appendExpr(buf, w.expr); err != nil {
+				return err
+			}
+			buf.WriteString(")")
+			wrote++
+		case whereSubquery:
+			if w.sub == nil {
+				return errors.New("corm: nil subquery")
+			}
+			col, ok := quoteIdentStrict(wb.d, w.column)
+			if !ok {
+				return errors.New("corm: invalid column identifier")
+			}
+			buf.WriteString(" AND (")
+			buf.WriteString(col)
+			buf.WriteString(" ")
+			buf.WriteString(w.op)
+			buf.WriteString(" (")
+			if err := w.sub.appendSQL(buf, ab); err != nil {
+				return err
+			}
+			buf.WriteString("))")
+			wrote++
+		default:
+			return errors.New("corm: invalid where kind")
+		}
+	}
+	if wrote == 0 {
+		return nil
+	}
+	return nil
+}

@@ -27,7 +27,14 @@ const (
 )
 
 func newDelete(exec Executor, d dialect.Dialect, table string) *DeleteBuilder {
-	return &DeleteBuilder{exec: exec, d: d, table: table, where: whereBuilder{d: d}}
+	table = strings.TrimSpace(table)
+	b := &DeleteBuilder{exec: exec, d: d, table: table, where: whereBuilder{d: d}}
+	if table != "" && d != nil {
+		if _, ok := quoteIdentStrict(d, table); !ok {
+			b.err = errors.New("corm: invalid table identifier")
+		}
+	}
+	return b
 }
 
 func (b *DeleteBuilder) AllowEmptyWhere() *DeleteBuilder {

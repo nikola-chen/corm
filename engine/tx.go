@@ -10,6 +10,9 @@ import (
 	"github.com/nikola-chen/corm/dialect"
 )
 
+// Tx wraps a database transaction.
+//
+// Tx is not safe for concurrent use by multiple goroutines.
 type Tx struct {
 	tx           *sql.Tx
 	dialect      dialect.Dialect
@@ -31,6 +34,8 @@ func (t *Tx) Commit() error { return t.tx.Commit() }
 func (t *Tx) Rollback() error { return t.tx.Rollback() }
 
 // Transaction executes a function within a nested transaction (using SAVEPOINT).
+//
+// Tx is not safe for concurrent use. Do not call Transaction concurrently on the same Tx.
 func (t *Tx) Transaction(ctx context.Context, fn func(*Tx) error) (err error) {
 	t.savepointSeq++
 	name := fmt.Sprintf("sp_%d", t.savepointSeq)

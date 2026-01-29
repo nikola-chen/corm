@@ -34,7 +34,7 @@ type SelectBuilder struct {
 	where     whereBuilder
 	groupBy   []string
 	having    []clause.Expr
-	orderBy   []string
+	orderBy   []clause.Expr
 	limit     *int
 	offset    *int
 	distinct  bool
@@ -482,10 +482,12 @@ func (b *SelectBuilder) OrderBy(column, dir string) *SelectBuilder {
 	default:
 		dir = "ASC"
 	}
-	b.orderBy = append(b.orderBy, col+" "+dir)
+	b.orderBy = append(b.orderBy, clause.Expr{SQL: col + " " + dir})
 	return b
 }
 
+// OrderByRaw appends a raw ORDER BY fragment.
+// Do not pass untrusted user input; prefer OrderBy/OrderByAsc/OrderByDesc or OrderByExpr.
 func (b *SelectBuilder) OrderByRaw(raw string) *SelectBuilder {
 	if b.err != nil {
 		return b
@@ -494,7 +496,20 @@ func (b *SelectBuilder) OrderByRaw(raw string) *SelectBuilder {
 	if raw == "" {
 		return b
 	}
-	b.orderBy = append(b.orderBy, raw)
+	b.orderBy = append(b.orderBy, clause.Expr{SQL: raw})
+	return b
+}
+
+// OrderByExpr appends an ORDER BY expression that supports args binding.
+// Do not concatenate untrusted user input into Expr.SQL.
+func (b *SelectBuilder) OrderByExpr(e clause.Expr) *SelectBuilder {
+	if b.err != nil {
+		return b
+	}
+	if strings.TrimSpace(e.SQL) == "" {
+		return b
+	}
+	b.orderBy = append(b.orderBy, e)
 	return b
 }
 
@@ -676,11 +691,13 @@ func (b *SelectBuilder) appendSQL(buf *bytes.Buffer, ab *argBuilder) error {
 
 	if len(b.orderBy) > 0 {
 		buf.WriteString(" ORDER BY ")
-		for i, o := range b.orderBy {
+		for i := range b.orderBy {
 			if i > 0 {
 				buf.WriteString(", ")
 			}
-			buf.WriteString(o)
+			if err := ab.appendExpr(buf, b.orderBy[i]); err != nil {
+				return err
+			}
 		}
 	}
 

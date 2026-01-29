@@ -120,15 +120,6 @@ _, err = e.Insert("users").
 	Columns("name", "age").
 	MapsLowerKeys(rows).
 	Exec(ctx)
-
-// Batch update (single SQL with CASE WHEN):
-usersToUpdate := []User{
-	{ID: 1, Name: "Alice", Age: 31},
-	{ID: 2, Name: "Bob", Age: 26},
-}
-_, err = e.Update("").
-	Models(usersToUpdate).
-	Exec(ctx)
 ```
 
 #### Select
@@ -352,6 +343,22 @@ func main() {
 		Map(map[string]any{"status": 0}).
 		Set("updated_at", time.Now()).
 		Where("age < ?", 20).
+		Exec(ctx)
+
+	// Update Batch using Maps
+	updateRows := []map[string]any{
+		{"id": 1, "status": 1, "age": 26},
+		{"id": 2, "status": 0, "age": 29},
+	}
+	// CASE-WHEN bulk update based on 'id'
+	e.Update("users").Key("id").Maps(updateRows).Exec(ctx)
+
+	// Update Batch using Maps with Extra Where
+	// This generates: UPDATE ... WHERE id IN (...) AND status = 1
+	e.Update("users").
+		Key("id").
+		Maps(updateRows).
+		Where("status = ?", 1).
 		Exec(ctx)
 
 	// 5. Update with Limit (MySQL only)

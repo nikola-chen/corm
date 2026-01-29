@@ -45,6 +45,16 @@ func (b *InsertBuilder) Models(models any) *InsertBuilder {
 		return b
 	}
 	if b.table == "" {
+		if strings.TrimSpace(s.Table) == "" {
+			b.err = errors.New("corm: missing table for insert: model has no table name")
+			return b
+		}
+		if b.d != nil {
+			if _, ok := quoteIdentStrict(b.d, s.Table); !ok {
+				b.err = errors.New("corm: invalid table identifier from model")
+				return b
+			}
+		}
 		b.table = s.Table
 	}
 

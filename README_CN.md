@@ -121,15 +121,6 @@ _, err = e.Insert("users").
 	Columns("name", "age").
 	MapsLowerKeys(rows).
 	Exec(ctx)
-
-// 批量更新（单条 SQL，CASE WHEN）：
-usersToUpdate := []User{
-	{ID: 1, Name: "Alice", Age: 31},
-	{ID: 2, Name: "Bob", Age: 26},
-}
-_, err = e.Update("").
-	Models(usersToUpdate).
-	Exec(ctx)
 ```
 
 #### 查询 (Select)
@@ -369,6 +360,22 @@ func main() {
 		Where("age < ?", 20).
 		Exec(ctx)
 
+	// 方式 C: 批量更新 Maps
+	updateRows := []map[string]any{
+		{"id": 1, "status": 1, "age": 26},
+		{"id": 2, "status": 0, "age": 29},
+	}
+	// 基于 'id' 生成 CASE-WHEN 批量更新语句
+	e.Update("users").Key("id").Maps(updateRows).Exec(ctx)
+
+	// 方式 D: 批量更新 Maps 叠加 Where 条件
+	// 结果 SQL: UPDATE ... WHERE id IN (...) AND status = 1
+	e.Update("users").
+		Key("id").
+		Maps(updateRows).
+		Where("status = ?", 1).
+		Exec(ctx)
+
 	// 5. 更新带 Limit (仅 MySQL)
 	_, err = e.Update("users").
 		Set("status", 0).
@@ -440,9 +447,7 @@ import "github.com/nikola-chen/corm/builder"
 
 qb := builder.MySQL() // 或 builder.Postgres()
 // 或：qb := builder.Dialect(driverName)       // 直到 SQL()/Exec()/Query() 才返回该错误
-// 或：qb := builder.MustDialect(driverName)   // 不支持则直接 panic（适合启动期校验）
 // 或：qb := builder.MustDialect(driverName)   // 不支持则直接 panic（仅建议启动期/脚本，避免在请求路径使用）
-// 或：qb := builder.MustFor(driverName, db)   // 不支持则直接 panic（适合启动期校验）
 // 或：qb := builder.MustFor(driverName, db)   // 不支持则直接 panic（仅建议启动期/脚本，避免在请求路径使用）
 
 sqlStr, args, err := qb.Update("users").

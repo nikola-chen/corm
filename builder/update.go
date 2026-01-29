@@ -43,7 +43,14 @@ type UpdateBuilder struct {
 }
 
 func newUpdate(exec Executor, d dialect.Dialect, table string) *UpdateBuilder {
-	return &UpdateBuilder{exec: exec, d: d, table: table, where: whereBuilder{d: d}}
+	table = strings.TrimSpace(table)
+	b := &UpdateBuilder{exec: exec, d: d, table: table, where: whereBuilder{d: d}}
+	if table != "" && d != nil {
+		if _, ok := quoteIdentStrict(d, table); !ok {
+			b.err = errors.New("corm: invalid table identifier")
+		}
+	}
+	return b
 }
 
 // AllowEmptyWhere allows UPDATE without a WHERE clause.
@@ -86,6 +93,16 @@ func (b *UpdateBuilder) Model(dest any) *UpdateBuilder {
 		return b
 	}
 	if b.table == "" {
+		if strings.TrimSpace(s.Table) == "" {
+			b.err = errors.New("corm: missing table for update: model has no table name")
+			return b
+		}
+		if b.d != nil {
+			if _, ok := quoteIdentStrict(b.d, s.Table); !ok {
+				b.err = errors.New("corm: invalid table identifier from model")
+				return b
+			}
+		}
 		b.table = s.Table
 	}
 
@@ -189,7 +206,7 @@ func (b *UpdateBuilder) Where(sql string, args ...any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use Where on batch update, use Key and Models/Maps")
+		b.batch.where.Where(sql, args...)
 		return b
 	}
 	b.where.Where(sql, args...)
@@ -201,7 +218,10 @@ func (b *UpdateBuilder) WhereEq(column string, value any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use WhereEq on batch update, use Key and Models/Maps")
+		b.batch.where.WhereEq(column, value)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
 		return b
 	}
 	b.where.WhereEq(column, value)
@@ -217,7 +237,10 @@ func (b *UpdateBuilder) WhereIn(column string, args ...any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use WhereIn on batch update, use Key and Models/Maps")
+		b.batch.where.WhereIn(column, args...)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
 		return b
 	}
 	b.where.WhereIn(column, args...)
@@ -232,7 +255,10 @@ func (b *UpdateBuilder) WhereLike(column string, value any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use WhereLike on batch update, use Key and Models/Maps")
+		b.batch.where.WhereLike(column, value)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
 		return b
 	}
 	b.where.WhereLike(column, value)
@@ -249,7 +275,10 @@ func (b *UpdateBuilder) WhereMap(conditions map[string]any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use WhereMap on batch update, use Key and Models/Maps")
+		b.batch.where.WhereMap(conditions)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
 		return b
 	}
 	b.where.WhereMap(conditions)
@@ -265,7 +294,10 @@ func (b *UpdateBuilder) WhereSubquery(column, op string, sub *SelectBuilder) *Up
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use WhereSubquery on batch update, use Key and Models/Maps")
+		b.batch.where.WhereSubquery(column, op, sub)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
 		return b
 	}
 	b.where.WhereSubquery(column, op, sub)
@@ -281,7 +313,10 @@ func (b *UpdateBuilder) WhereInSubquery(column string, sub *SelectBuilder) *Upda
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use WhereInSubquery on batch update, use Key and Models/Maps")
+		b.batch.where.WhereSubquery(column, "IN", sub)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
 		return b
 	}
 	b.where.WhereSubquery(column, "IN", sub)
@@ -297,7 +332,10 @@ func (b *UpdateBuilder) WhereExpr(e clause.Expr) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use WhereExpr on batch update, use Key and Models/Maps")
+		b.batch.where.WhereExpr(e)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
 		return b
 	}
 	b.where.WhereExpr(e)
@@ -357,6 +395,25 @@ func (b *UpdateBuilder) Maps(rows []map[string]any) *UpdateBuilder {
 	b.batch.includeReadonly = b.includeReadonly
 	b.batch.includeZero = b.includeZero
 	b.batch.Maps(rows)
+	return b
+}
+
+func (b *UpdateBuilder) MapsLowerKeys(rows []map[string]any) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	if b.batch == nil {
+		if len(b.sets) > 0 || len(b.where.items) > 0 {
+			b.err = errors.New("corm: cannot switch to batch update after using Set/Where")
+			return b
+		}
+		b.batch = newBatchUpdate(b.exec, b.d, b.table)
+	}
+	b.batch.includePrimaryKey = b.includePrimaryKey
+	b.batch.includeAuto = b.includeAuto
+	b.batch.includeReadonly = b.includeReadonly
+	b.batch.includeZero = b.includeZero
+	b.batch.MapsLowerKeys(rows)
 	return b
 }
 

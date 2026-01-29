@@ -33,31 +33,37 @@ func Eq(column string, value any) Expr {
 }
 
 // Neq creates a non-equality expression: "column != value"
+// The column must be a trusted identifier (do not pass user input).
 func Neq(column string, value any) Expr {
 	return Expr{SQL: column + " != ?", Args: []any{value}}
 }
 
 // Gt creates a greater than expression: "column > value"
+// The column must be a trusted identifier (do not pass user input).
 func Gt(column string, value any) Expr {
 	return Expr{SQL: column + " > ?", Args: []any{value}}
 }
 
 // Gte creates a greater than or equal expression: "column >= value"
+// The column must be a trusted identifier (do not pass user input).
 func Gte(column string, value any) Expr {
 	return Expr{SQL: column + " >= ?", Args: []any{value}}
 }
 
 // Lt creates a less than expression: "column < value"
+// The column must be a trusted identifier (do not pass user input).
 func Lt(column string, value any) Expr {
 	return Expr{SQL: column + " < ?", Args: []any{value}}
 }
 
 // Lte creates a less than or equal expression: "column <= value"
+// The column must be a trusted identifier (do not pass user input).
 func Lte(column string, value any) Expr {
 	return Expr{SQL: column + " <= ?", Args: []any{value}}
 }
 
 // Like creates a LIKE expression: "column LIKE value"
+// The column must be a trusted identifier (do not pass user input).
 func Like(column string, value any) Expr {
 	return Expr{SQL: column + " LIKE ?", Args: []any{value}}
 }
@@ -203,57 +209,68 @@ func Not(expr Expr) Expr {
 }
 
 // IsNull checks if a column is NULL.
+// The column must be a trusted identifier (do not pass user input).
 func IsNull(column string) Expr {
 	return Expr{SQL: column + " IS NULL"}
 }
 
 // IsNotNull checks if a column is NOT NULL.
+// The column must be a trusted identifier (do not pass user input).
 func IsNotNull(column string) Expr {
 	return Expr{SQL: column + " IS NOT NULL"}
 }
 
 // Alias creates an alias expression: "expression AS alias"
+// Both expression and alias must be trusted identifiers (do not pass user input).
 func Alias(expression, alias string) string {
 	return expression + " AS " + alias
 }
 
 // Any creates an ANY expression: "column operator ANY (subquery)"
 // This is a placeholder; actual usage often involves subqueries.
+// The column, operator and subquery must be trusted identifiers/SQL fragments.
 func Any(column, operator, subquery string) Expr {
 	return Expr{SQL: column + " " + operator + " ANY (" + subquery + ")"}
 }
 
 // All creates an ALL expression: "column operator ALL (subquery)"
+// The column, operator and subquery must be trusted identifiers/SQL fragments.
 func All(column, operator, subquery string) Expr {
 	return Expr{SQL: column + " " + operator + " ALL (" + subquery + ")"}
 }
 
 // Some is an alias for Any.
+// The column, operator and subquery must be trusted identifiers/SQL fragments.
 func Some(column, operator, subquery string) Expr {
 	return Any(column, operator, subquery)
 }
 
 // Count creates a COUNT expression.
+// The column must be a trusted identifier (do not pass user input).
 func Count(column string) string {
 	return "COUNT(" + column + ")"
 }
 
 // Sum creates a SUM expression.
+// The column must be a trusted identifier (do not pass user input).
 func Sum(column string) string {
 	return "SUM(" + column + ")"
 }
 
 // Avg creates an AVG expression.
+// The column must be a trusted identifier (do not pass user input).
 func Avg(column string) string {
 	return "AVG(" + column + ")"
 }
 
 // Max creates a MAX expression.
+// The column must be a trusted identifier (do not pass user input).
 func Max(column string) string {
 	return "MAX(" + column + ")"
 }
 
 // Min creates a MIN expression.
+// The column must be a trusted identifier (do not pass user input).
 func Min(column string) string {
 	return "MIN(" + column + ")"
 }

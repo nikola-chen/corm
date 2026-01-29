@@ -2,6 +2,7 @@ package builder
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"sync"
 	"unicode"
@@ -59,6 +60,9 @@ func quoteSelectColumnStrict(d dialect.Dialect, ident string) (string, bool) {
 	if ident == "*" {
 		return "*", true
 	}
+	if d == nil {
+		return "", false
+	}
 	// Fast check for invalid chars
 	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;\"`") {
 		return "", false
@@ -106,13 +110,17 @@ func quoteSelectColumnStrict(d dialect.Dialect, ident string) (string, bool) {
 	return buf.String(), true
 }
 
+func quoteTableStrict(d dialect.Dialect, ident string) (string, bool) {
+	return quoteIdentStrict(d, ident)
+}
+
 func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
 	ident = strings.TrimSpace(ident)
 	if ident == "" {
 		return "", false
 	}
-	if ident == "*" {
-		return "*", true
+	if d == nil {
+		return "", false
 	}
 	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;\"`") {
 		return "", false
@@ -147,9 +155,26 @@ func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
 	return buf.String(), true
 }
 
+func validateTable(d dialect.Dialect, table string) (string, error) {
+	if strings.TrimSpace(table) == "" {
+		return "", errors.New("corm: missing table name")
+	}
+	if d == nil {
+		return "", errors.New("corm: nil dialect")
+	}
+	qTable, ok := quoteTableStrict(d, table)
+	if !ok {
+		return "", errors.New("corm: invalid table identifier")
+	}
+	return qTable, nil
+}
+
 func quoteColumnStrict(d dialect.Dialect, column string) (string, bool) {
 	column = strings.TrimSpace(column)
 	if column == "" || column == "*" || strings.Contains(column, ".") {
+		return "", false
+	}
+	if d == nil {
 		return "", false
 	}
 	if strings.ContainsAny(column, " ()+-/*,%<>=!|&^~?:;") {

@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -86,16 +88,17 @@ const maxSchemaCacheEntries = 1024
 
 // Parse parses a struct model and returns its Schema.
 // It caches the result for future use.
+// If the struct has fields mapping to the same column name (via tag or snake_case),
+// the last defined field (in depth-first traversal) wins and overwrites previous mappings.
 func Parse(model any) (*Schema, error) {
-	t := indirectType(reflect.TypeOf(model))
-	return ParseType(t)
-}
-
-func indirectType(t reflect.Type) reflect.Type {
-	for t != nil && t.Kind() == reflect.Pointer {
+	if model == nil {
+		return nil, ErrInvalidModel
+	}
+	t := reflect.TypeOf(model)
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
-	return t
+	return ParseType(t)
 }
 
 type parseEntry struct {
@@ -108,8 +111,11 @@ type parseEntry struct {
 var parseGroup sync.Map
 
 func ParseType(t reflect.Type) (*Schema, error) {
-	if t == nil || t.Kind() != reflect.Struct {
+	if t == nil {
 		return nil, ErrInvalidModel
+	}
+	if t.Kind() != reflect.Struct {
+		return nil, errors.New("corm: model must be struct, got " + t.Kind().String())
 	}
 
 	if v, ok := cache.Load(t); ok {
@@ -127,7 +133,16 @@ func ParseType(t reflect.Type) (*Schema, error) {
 		return e.s, nil
 	}
 
-	s, err := parseSlow(t)
+	var s *Schema
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("corm: schema parse panic: %v", r)
+			}
+		}()
+		s, err = parseSlow(t)
+	}()
 	if err != nil {
 		e.s = nil
 		e.err = err
@@ -135,12 +150,25 @@ func ParseType(t reflect.Type) (*Schema, error) {
 		parseGroup.Delete(t)
 		return nil, err
 	}
-	if cacheCount.Load() < maxSchemaCacheEntries {
-		stored, storedNew := cache.LoadOrStore(t, s)
-		if !storedNew {
-			s = stored.(*Schema)
-		} else {
-			cacheCount.Add(1)
+
+	actualS, loaded := cache.LoadOrStore(t, s)
+	if loaded {
+		s = actualS.(*Schema)
+	} else {
+		if cacheCount.Add(1) > maxSchemaCacheEntries {
+			evicted := false
+			cache.Range(func(k, _ any) bool {
+				if k == t {
+					return true
+				}
+				cache.Delete(k)
+				cacheCount.Add(^uint64(0))
+				evicted = true
+				return false
+			})
+			if !evicted {
+				cacheCount.Add(^uint64(0))
+			}
 		}
 	}
 

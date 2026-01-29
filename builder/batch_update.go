@@ -29,6 +29,8 @@ type batchUpdateBuilder struct {
 	rowsKeys   []any
 	rowsValues [][]any
 
+	where whereBuilder
+
 	err error
 
 	includePrimaryKey bool
@@ -45,9 +47,13 @@ func newBatchUpdate(exec Executor, d dialect.Dialect, table string) *batchUpdate
 		d:         d,
 		table:     table,
 		keyColumn: "id",
+		where:     whereBuilder{d: d},
 	}
 }
 
+// Key sets the column name to be used as the join key for batch updates.
+// This column must exist in the input data (Map keys or Model fields).
+// If not set, it defaults to "id".
 func (b *batchUpdateBuilder) Key(column string) *batchUpdateBuilder {
 	b.keyColumn = strings.TrimSpace(column)
 	return b
@@ -105,7 +111,7 @@ func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 		baseT = elemT.Elem()
 	}
 	if baseT.Kind() != reflect.Struct {
-		b.err = schema.ErrInvalidModel
+		b.err = errors.New("corm: batch update models must be a slice of structs, got " + baseT.Kind().String())
 		return b
 	}
 
@@ -123,6 +129,16 @@ func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 	}
 
 	if b.table == "" {
+		if strings.TrimSpace(s.Table) == "" {
+			b.err = errors.New("corm: missing table for update: model has no table name")
+			return b
+		}
+		if b.d != nil {
+			if _, ok := quoteIdentStrict(b.d, s.Table); !ok {
+				b.err = errors.New("corm: invalid table identifier from model")
+				return b
+			}
+		}
 		b.table = s.Table
 	} else if b.table != s.Table && b.rowsValues != nil {
 		// Warn or error on table mismatch?
@@ -189,6 +205,14 @@ func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 }
 
 func (b *batchUpdateBuilder) Maps(rows []map[string]any) *batchUpdateBuilder {
+	return b.mapsInternal(rows, false)
+}
+
+func (b *batchUpdateBuilder) MapsLowerKeys(rows []map[string]any) *batchUpdateBuilder {
+	return b.mapsInternal(rows, true)
+}
+
+func (b *batchUpdateBuilder) mapsInternal(rows []map[string]any, lowerKeys bool) *batchUpdateBuilder {
 	if b.err != nil {
 		return b
 	}
@@ -222,6 +246,10 @@ func (b *batchUpdateBuilder) Maps(rows []map[string]any) *batchUpdateBuilder {
 		b.columns = cols
 	} else {
 		for _, c := range b.columns {
+			if strings.EqualFold(c, b.keyColumn) {
+				b.err = errors.New("corm: batch update cannot include key column")
+				return b
+			}
 			if _, ok := quoteColumnStrict(b.d, c); !ok {
 				b.err = errors.New("corm: invalid column identifier")
 				return b
@@ -239,7 +267,14 @@ func (b *batchUpdateBuilder) Maps(rows []map[string]any) *batchUpdateBuilder {
 			b.err = errors.New("corm: nil map in batch update")
 			return b
 		}
-		keyV, ok := m[b.keyColumn]
+
+		var keyV any
+		var ok bool
+		if lowerKeys {
+			keyV, ok = m[strings.ToLower(b.keyColumn)]
+		} else {
+			keyV, ok = m[b.keyColumn]
+		}
 		if !ok {
 			b.err = errors.New("corm: missing key column in map: " + b.keyColumn)
 			return b
@@ -248,7 +283,11 @@ func (b *batchUpdateBuilder) Maps(rows []map[string]any) *batchUpdateBuilder {
 
 		row := make([]any, len(b.columns))
 		for j, col := range b.columns {
-			v, ok := m[col]
+			lookup := col
+			if lowerKeys {
+				lookup = strings.ToLower(col)
+			}
+			v, ok := m[lookup]
 			if !ok {
 				row[j] = keepCurrentSentinel
 				continue
@@ -355,8 +394,12 @@ func (b *batchUpdateBuilder) appendSQL(buf *bytes.Buffer, ab *argBuilder) error 
 		buf.WriteString(ab.add(b.rowsKeys[i]))
 	}
 	buf.WriteString(")")
+	if err := b.where.appendAndWhere(buf, ab); err != nil {
+		return err
+	}
 
 	return nil
+
 }
 
 func (b *batchUpdateBuilder) Exec(ctx context.Context) (sql.Result, error) {

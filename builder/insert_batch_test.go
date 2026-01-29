@@ -84,3 +84,44 @@ func TestInsertMapsBatch_MissingColumn(t *testing.T) {
 		t.Fatalf("want error, got nil")
 	}
 }
+
+type BadTableNameUser struct {
+	Name string `db:"name"`
+}
+
+func (BadTableNameUser) TableName() string { return "bad name" }
+
+func TestInsertModelsBatch_ExplicitTableWinsOverModelTableName(t *testing.T) {
+	users := []BadTableNameUser{{Name: "a"}}
+	q := mysqlQB().Insert("users").Models(users)
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+	if sqlStr != "INSERT INTO `users` (`name`) VALUES (?)" {
+		t.Fatalf("got: %s", sqlStr)
+	}
+	if !reflect.DeepEqual(args, []any{"a"}) {
+		t.Fatalf("got args: %v", args)
+	}
+}
+
+func TestInsertModelsBatch_EmptyTableAndInvalidModelTableName(t *testing.T) {
+	users := []BadTableNameUser{{Name: "a"}}
+	q := mysqlQB().Insert("").Models(users)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Fatalf("want error, got nil")
+	}
+}
+
+func TestInsertModelsBatch_EmptyTableAnonymousStruct(t *testing.T) {
+	users := []struct {
+		Name string `db:"name"`
+	}{{Name: "a"}}
+	q := mysqlQB().Insert("").Models(users)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Fatalf("want error, got nil")
+	}
+}

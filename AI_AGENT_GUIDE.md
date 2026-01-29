@@ -124,7 +124,8 @@ err := e.Select("id", "name").
 - `GroupBy(cols...)`
 - `Having(sql, args...)`
 - `OrderBy(column, "ASC|DESC")` / `OrderByAsc` / `OrderByDesc`
-- `OrderByRaw(raw)`
+- `OrderByExpr(clause.Raw(sql, args...))`（复杂排序；支持参数绑定）
+- `OrderByRaw(raw)`（危险入口；不要拼接用户输入）
 - `Limit(limit)` / `Offset(offset)` / `LimitOffset(limit, offset)`
 
 #### JOIN 示例
@@ -156,6 +157,9 @@ e.Select("u.name").
 - Use `Update(table)`.
 - `Set(col, val)` or `Map(map[string]any)`.
 - `Model(interface{})` with `IncludeZero()`, `IncludePrimaryKey()` options.
+- **Batch Update**: `Key("id").Models(slice)` or `Key("id").Maps(sliceOfMaps)`.
+- **Batch Update + Where**: `Key("id").Maps(slice).Where("status = ?", 1)`.
+- **Note**: Batch Update (using `Key`) is mutually exclusive with `Set/Map/Model` (single update). Do not mix them.
 - `Limit(int)`: Adds a LIMIT clause. **Warning**: Only supported by MySQL dialect. Postgres does not support LIMIT on UPDATE/DELETE; using it will return an error.
 - Default requires WHERE; use `AllowEmptyWhere()` only when you really want to update all rows.
 
@@ -200,6 +204,9 @@ err := e.Transaction(ctx, func(tx *engine.Tx) error {
 - `scan.ScanOneStrict(rows, dest)` / `scan.ScanAllStrict(rows, dest)`
 - 当查询结果中存在重复列（归一化后同名，如 `u.id` 和 `o.id`）时，严格模式会直接报错，防止静默覆盖导致的数据错误。
 
+**预分配优化**:
+- `scan.ScanAllCap(rows, dest, capacity)`: 如果已知大概行数，可传入 `capacity` 预分配切片容量，减少 `append` 时的扩容分配。
+
 ---
 
 ## 7. AI 代码生成模板（可复制）
@@ -242,7 +249,51 @@ func CreateUser(ctx context.Context, e *engine.Engine, name string) error {
 
 ---
 
-## 8. 版本与兼容性提示
+## 8. 最佳实践：Context 超时控制
+
+强烈建议为所有数据库操作设置 Context 超时，防止长时间阻塞。
+
+```go
+func GetUserWithTimeout(db *engine.Engine, userID int) (*User, error) {
+    // 建议：默认超时 3-5 秒，根据业务调整
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    var u User
+    // 所有 All/One/Exec 方法都接受 context
+    err := db.Select("*").From("users").Where("id = ?", userID).One(ctx, &u)
+    if err != nil {
+        if errors.Is(err, context.DeadlineExceeded) {
+            return nil, fmt.Errorf("query timeout: %w", err)
+        }
+        return nil, err
+    }
+    return &u, nil
+}
+```
+
+## 9. 最佳实践：大批量数据分批处理
+
+对于超过 1000 行的批量插入或更新，建议分批执行以避免 SQL 语句过长或数据库包大小限制。
+
+```go
+func BatchInsertUsers(ctx context.Context, db *engine.Engine, users []User) error {
+    const batchSize = 1000
+    for i := 0; i < len(users); i += batchSize {
+        end := i + batchSize
+        if end > len(users) {
+            end = len(users)
+        }
+        chunk := users[i:end]
+        if _, err := db.Insert("").Models(chunk).Exec(ctx); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+```
+
+## 10. 版本与兼容性提示
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`

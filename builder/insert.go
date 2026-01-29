@@ -33,7 +33,14 @@ type InsertBuilder struct {
 }
 
 func newInsert(exec Executor, d dialect.Dialect, table string) *InsertBuilder {
-	return &InsertBuilder{exec: exec, d: d, table: table}
+	table = strings.TrimSpace(table)
+	b := &InsertBuilder{exec: exec, d: d, table: table}
+	if table != "" && d != nil {
+		if _, ok := quoteIdentStrict(d, table); !ok {
+			b.err = errors.New("corm: invalid table identifier")
+		}
+	}
+	return b
 }
 
 // SuffixRaw appends a raw SQL suffix to the INSERT statement (e.g., ON CONFLICT ...).
@@ -91,6 +98,16 @@ func (b *InsertBuilder) Model(dest any) *InsertBuilder {
 		return b
 	}
 	if b.table == "" {
+		if strings.TrimSpace(s.Table) == "" {
+			b.err = errors.New("corm: missing table for insert: model has no table name")
+			return b
+		}
+		if b.d != nil {
+			if _, ok := quoteIdentStrict(b.d, s.Table); !ok {
+				b.err = errors.New("corm: invalid table identifier from model")
+				return b
+			}
+		}
 		b.table = s.Table
 	}
 
