@@ -78,19 +78,12 @@ func colsKey(cols []string) string {
 // writeLowerASCII writes the lowercase version of s to b.
 // It handles ASCII characters directly and falls back to strings.ToLower for non-ASCII.
 func writeLowerASCII(b *strings.Builder, s string) {
-	nonASCII := false
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			nonASCII = true
-			break
-		}
-	}
-	if nonASCII {
-		b.WriteString(strings.ToLower(s))
-		return
-	}
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
+		if ch >= 0x80 {
+			b.WriteString(strings.ToLower(s))
+			return
+		}
 		if ch >= 'A' && ch <= 'Z' {
 			ch += 'a' - 'A'
 		}

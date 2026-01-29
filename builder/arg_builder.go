@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/nikola-chen/corm/clause"
@@ -334,8 +335,8 @@ func rewriteQuestionPlaceholders(sql string, startIndex int, placeholder func(in
 	return out.String(), nextIndex, nil
 }
 
-func rewritePostgresQuestionPlaceholders(sql string, startIndex int, allowBackslashEscape bool) (string, int, error) {
-	if strings.IndexByte(sql, '?') < 0 {
+func rewritePlaceholdersCommon(sql string, startIndex int, isPostgres bool) (string, int, error) {
+	if strings.IndexByte(sql, '?') < 0 && !isPostgres {
 		return sql, startIndex, nil
 	}
 	var out strings.Builder
@@ -346,6 +347,7 @@ func rewritePostgresQuestionPlaceholders(sql string, startIndex int, allowBacksl
 	inLineComment := false
 	inBlockComment := false
 	dollarTag := ""
+	isMySQL := !isPostgres
 
 	i := 0
 	n := len(sql)
@@ -387,12 +389,9 @@ func rewritePostgresQuestionPlaceholders(sql string, startIndex int, allowBacksl
 			ch := sql[i]
 			out.WriteByte(ch)
 			i++
-			if allowBackslashEscape && ch == '\\' {
-				if i < n {
-					out.WriteByte(sql[i])
-					i++
-				}
-				continue
+			if isMySQL && ch == '\\' && i < n {
+				out.WriteByte(sql[i])
+				i++
 			}
 			if ch == '\'' {
 				if i < n && sql[i] == '\'' {
@@ -463,26 +462,28 @@ func rewritePostgresQuestionPlaceholders(sql string, startIndex int, allowBacksl
 			continue
 		}
 
-		j := i + 1
-		for j < n {
-			ch := sql[j]
-			if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-				j++
-				continue
+		if isPostgres {
+			j := i + 1
+			for j < n {
+				ch := sql[j]
+				if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+					j++
+					continue
+				}
+				break
 			}
-			break
-		}
-		if j < n {
-			switch sql[j] {
-			case '|', '&':
-				return "", startIndex, errors.New("corm: postgres jsonb operator '?|/?&' conflicts with placeholder '?', use jsonb_exists_any/jsonb_exists_all")
-			case '\'', '"':
-				return "", startIndex, errors.New("corm: postgres jsonb operator '?' conflicts with placeholder '?', use jsonb_exists")
+			if j < n {
+				switch sql[j] {
+				case '|', '&':
+					return "", startIndex, errors.New("corm: postgres jsonb operator '?|/?&' conflicts with placeholder '?', use jsonb_exists_any/jsonb_exists_all")
+				case '\'', '"':
+					return "", startIndex, errors.New("corm: postgres jsonb operator '?' conflicts with placeholder '?', use jsonb_exists")
+				}
 			}
 		}
 
 		out.WriteByte('$')
-		out.WriteString(intToString(nextIndex))
+		out.WriteString(strconv.Itoa(nextIndex))
 		nextIndex++
 		i++
 	}
@@ -490,16 +491,6 @@ func rewritePostgresQuestionPlaceholders(sql string, startIndex int, allowBacksl
 	return out.String(), nextIndex, nil
 }
 
-func intToString(v int) string {
-	if v == 0 {
-		return "0"
-	}
-	var b [32]byte
-	i := len(b)
-	for v > 0 {
-		i--
-		b[i] = byte('0' + v%10)
-		v /= 10
-	}
-	return string(b[i:])
+func rewritePostgresQuestionPlaceholders(sql string, startIndex int, allowBackslashEscape bool) (string, int, error) {
+	return rewritePlaceholdersCommon(sql, startIndex, true)
 }
