@@ -1,41 +1,36 @@
 package builder
 
 import (
+	"bytes"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/nikola-chen/corm/dialect"
 )
 
-func quoteMaybe(d dialect.Dialect, ident string) string {
-	ident = strings.TrimSpace(ident)
-	if ident == "" {
-		return ident
-	}
-	if ident == "*" {
-		return "*"
-	}
-	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;") {
-		return ident
-	}
-	if strings.Contains(ident, "\"") || strings.Contains(ident, "`") {
-		return ident
-	}
+var bufferPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
 
-	parts := strings.Split(ident, ".")
-	quoted := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "*" {
-			quoted = append(quoted, "*")
-			continue
-		}
-		if !isSimpleIdent(p) {
-			return ident
-		}
-		quoted = append(quoted, d.QuoteIdent(p))
+const maxPooledBufferCap = 64 * 1024
+
+func getBuffer() *bytes.Buffer {
+	buf := bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	return buf
+}
+
+func putBuffer(buf *bytes.Buffer) {
+	if buf == nil {
+		return
 	}
-	return strings.Join(quoted, ".")
+	if buf.Cap() > maxPooledBufferCap {
+		return
+	}
+	bufferPool.Put(buf)
 }
 
 func isSimpleIdent(s string) bool {
@@ -56,6 +51,61 @@ func isSimpleIdent(s string) bool {
 	return true
 }
 
+func quoteSelectColumnStrict(d dialect.Dialect, ident string) (string, bool) {
+	ident = strings.TrimSpace(ident)
+	if ident == "" {
+		return "", false
+	}
+	if ident == "*" {
+		return "*", true
+	}
+	// Fast check for invalid chars
+	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;\"`") {
+		return "", false
+	}
+
+	// Optimization: avoid strings.Split if no dot present
+	if strings.IndexByte(ident, '.') == -1 {
+		if !isSimpleIdent(ident) {
+			return "", false
+		}
+		return d.QuoteIdent(ident), true
+	}
+
+	// Manual split-and-quote using buffer to avoid slice allocation
+	var buf strings.Builder
+	buf.Grow(len(ident) + 4) // heuristic: 2 quotes per part
+
+	start := 0
+	for i := 0; i <= len(ident); i++ {
+		if i == len(ident) || ident[i] == '.' {
+			part := ident[start:i]
+			// part = strings.TrimSpace(part) // parts inside dot usually don't have spaces if simpleIdent check passes
+			if part == "" {
+				return "", false
+			}
+
+			if buf.Len() > 0 {
+				buf.WriteByte('.')
+			}
+
+			if part == "*" {
+				if i != len(ident) { // * must be last part
+					return "", false
+				}
+				buf.WriteString("*")
+			} else {
+				if !isSimpleIdent(part) {
+					return "", false
+				}
+				buf.WriteString(d.QuoteIdent(part))
+			}
+			start = i + 1
+		}
+	}
+	return buf.String(), true
+}
+
 func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
 	ident = strings.TrimSpace(ident)
 	if ident == "" {
@@ -64,21 +114,62 @@ func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
 	if ident == "*" {
 		return "*", true
 	}
-	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;") {
-		return "", false
-	}
-	if strings.Contains(ident, "\"") || strings.Contains(ident, "`") {
+	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;\"`") {
 		return "", false
 	}
 
-	parts := strings.Split(ident, ".")
-	quoted := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if !isSimpleIdent(p) {
+	// Optimization: avoid strings.Split if no dot present
+	if strings.IndexByte(ident, '.') == -1 {
+		if !isSimpleIdent(ident) {
 			return "", false
 		}
-		quoted = append(quoted, d.QuoteIdent(p))
+		return d.QuoteIdent(ident), true
 	}
-	return strings.Join(quoted, "."), true
+
+	// Manual split-and-quote using buffer
+	var buf strings.Builder
+	buf.Grow(len(ident) + 4)
+
+	start := 0
+	for i := 0; i <= len(ident); i++ {
+		if i == len(ident) || ident[i] == '.' {
+			part := ident[start:i]
+			if !isSimpleIdent(part) {
+				return "", false
+			}
+			if buf.Len() > 0 {
+				buf.WriteByte('.')
+			}
+			buf.WriteString(d.QuoteIdent(part))
+			start = i + 1
+		}
+	}
+	return buf.String(), true
+}
+
+func quoteColumnStrict(d dialect.Dialect, column string) (string, bool) {
+	column = strings.TrimSpace(column)
+	if column == "" || column == "*" || strings.Contains(column, ".") {
+		return "", false
+	}
+	if strings.ContainsAny(column, " ()+-/*,%<>=!|&^~?:;") {
+		return "", false
+	}
+	if strings.Contains(column, "\"") || strings.Contains(column, "`") {
+		return "", false
+	}
+	if !isSimpleIdent(column) {
+		return "", false
+	}
+	return d.QuoteIdent(column), true
+}
+
+func normalizeSubqueryOp(op string) (string, bool) {
+	op = strings.TrimSpace(strings.ToUpper(op))
+	switch op {
+	case "=", "!=", "<>", ">", "<", ">=", "<=", "IN", "NOT IN", "LIKE", "NOT LIKE":
+		return op, true
+	default:
+		return "", false
+	}
 }

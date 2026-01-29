@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/nikola-chen/corm/builder"
+	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
 )
 
@@ -16,7 +17,6 @@ type Tx struct {
 	cfg          Config
 	savepointSeq int
 }
-
 
 func (e *Engine) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
 	tx, err := e.db.BeginTx(ctx, opts)
@@ -36,19 +36,23 @@ func (t *Tx) Transaction(ctx context.Context, fn func(*Tx) error) (err error) {
 	name := fmt.Sprintf("sp_%d", t.savepointSeq)
 
 	// Note: Not all databases support SAVEPOINT.
-	// We assume standard SQL behavior (Postgres, MySQL, SQLite).
+	// We assume standard SQL behavior (Postgres, MySQL).
 	if _, err := t.tx.ExecContext(ctx, "SAVEPOINT "+name); err != nil {
 		return err
 	}
 
 	defer func() {
 		if p := recover(); p != nil {
-			_ = t.rollbackTo(ctx, name)
+			if rbErr := t.rollbackTo(ctx, name); rbErr != nil && t.logger != nil {
+				t.logger.Printf("corm: rollback to savepoint failed name=%s err=%v", name, rbErr)
+			}
 			panic(p)
 		} else if err != nil {
-			_ = t.rollbackTo(ctx, name)
+			if rbErr := t.rollbackTo(ctx, name); rbErr != nil && t.logger != nil {
+				t.logger.Printf("corm: rollback to savepoint failed name=%s err=%v", name, rbErr)
+			}
 		} else {
-			_ = t.release(ctx, name)
+			err = t.release(ctx, name)
 		}
 	}()
 
@@ -72,18 +76,23 @@ func (t *Tx) Select(columns ...string) *builder.SelectBuilder {
 	return builder.Select(t.executor(), t.dialect, columns...)
 }
 
-func (t *Tx) SelectColumns(columns []string) *builder.SelectBuilder {
-	return builder.Select(t.executor(), t.dialect, columns...)
+func (t *Tx) SelectExpr(columns ...clause.Expr) *builder.SelectBuilder {
+	return builder.Select(t.executor(), t.dialect).SelectExpr(columns...)
 }
 
-func (t *Tx) InsertInto(table string) *builder.InsertBuilder {
-	return builder.InsertInto(t.executor(), t.dialect, table)
+func (t *Tx) Insert(table string) *builder.InsertBuilder {
+	return builder.Insert(t.executor(), t.dialect, table)
 }
 
 func (t *Tx) Update(table string) *builder.UpdateBuilder {
 	return builder.Update(t.executor(), t.dialect, table)
 }
 
-func (t *Tx) DeleteFrom(table string) *builder.DeleteBuilder {
-	return builder.DeleteFrom(t.executor(), t.dialect, table)
+func (t *Tx) Delete(table string) *builder.DeleteBuilder {
+	return builder.Delete(t.executor(), t.dialect, table)
+}
+
+// Builder returns a builder.API that is pre-bound to this Tx's dialect and executor.
+func (t *Tx) Builder() *builder.API {
+	return builder.NewAPI(t.dialect, t.executor())
 }

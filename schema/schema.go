@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 )
 
@@ -77,11 +78,36 @@ func (s *Schema) ColumnsAndValues(dest any, opts ExtractOptions) ([]string, []an
 }
 
 var cache sync.Map
+var cacheCount atomic.Uint64
+
+// maxSchemaCacheEntries bounds the global schema cache to avoid unbounded memory growth
+// in long-lived processes that may parse many different struct types.
+const maxSchemaCacheEntries = 1024
 
 // Parse parses a struct model and returns its Schema.
 // It caches the result for future use.
 func Parse(model any) (*Schema, error) {
 	t := indirectType(reflect.TypeOf(model))
+	return ParseType(t)
+}
+
+func indirectType(t reflect.Type) reflect.Type {
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+type parseEntry struct {
+	done chan struct{}
+	s    *Schema
+	err  error
+}
+
+// parseGroup avoids redundant parsing of the same type by concurrent callers.
+var parseGroup sync.Map
+
+func ParseType(t reflect.Type) (*Schema, error) {
 	if t == nil || t.Kind() != reflect.Struct {
 		return nil, ErrInvalidModel
 	}
@@ -90,19 +116,39 @@ func Parse(model any) (*Schema, error) {
 		return v.(*Schema), nil
 	}
 
+	e := &parseEntry{done: make(chan struct{})}
+	actual, loaded := parseGroup.LoadOrStore(t, e)
+	if loaded {
+		e = actual.(*parseEntry)
+		<-e.done
+		if e.err != nil {
+			return nil, e.err
+		}
+		return e.s, nil
+	}
+
 	s, err := parseSlow(t)
 	if err != nil {
+		e.s = nil
+		e.err = err
+		close(e.done)
+		parseGroup.Delete(t)
 		return nil, err
 	}
-	actual, _ := cache.LoadOrStore(t, s)
-	return actual.(*Schema), nil
-}
-
-func indirectType(t reflect.Type) reflect.Type {
-	for t != nil && t.Kind() == reflect.Pointer {
-		t = t.Elem()
+	if cacheCount.Load() < maxSchemaCacheEntries {
+		stored, storedNew := cache.LoadOrStore(t, s)
+		if !storedNew {
+			s = stored.(*Schema)
+		} else {
+			cacheCount.Add(1)
+		}
 	}
-	return t
+
+	e.s = s
+	e.err = nil
+	close(e.done)
+	parseGroup.Delete(t)
+	return s, nil
 }
 
 var ErrInvalidModel = &schemaError{"corm: model must be struct or pointer to struct"}

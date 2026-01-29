@@ -1,6 +1,10 @@
 # corm - Lightweight Go ORM
 
-`corm` is a lightweight, thread-safe, and easy-to-use ORM library for Go. It supports MySQL and PostgreSQL, providing a fluent Query Builder, struct mapping, and transaction management.
+`corm` is a lightweight and easy-to-use ORM library for Go. It supports MySQL and PostgreSQL, providing a fluent Query Builder, struct mapping, and transaction management.
+
+Concurrency note:
+- `Engine` is safe to share across goroutines.
+- Query builders (e.g. `e.Select(...).Where(...)`) are mutable and must not be shared across goroutines.
 
 ## Features
 
@@ -8,7 +12,7 @@
 - **Struct Mapping**: Automatically map database rows to structs (and slices of structs).
 - **Transaction Support**: Easy-to-use transaction management with closure-based `Transaction` helper.
 - **Cross-Database**: Supports MySQL and PostgreSQL (with dialect abstraction).
-- **Safety & Security**: Built-in SQL injection protection (parameter binding) and strict mode options.
+- **Safety & Security**: Built-in SQL injection protection (parameter binding) and safe identifier quoting.
 - **Performance**: Optimized reflection and allocation reduction for result scanning.
 
 ## For AI/Agents
@@ -30,6 +34,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/nikola-chen/corm/engine"
@@ -47,13 +52,21 @@ func main() {
 		}),
 	)
 	if err != nil {
-		panic(err)
+		log.Fatalf("open db: %v", err)
 	}
 	defer e.Close()
 
 	// Verify connection
-	if err := e.Ping(context.Background()); err != nil {
-		panic(err)
+	ctx := context.Background()
+	if err := e.Ping(ctx); err != nil {
+		log.Fatalf("ping db: %v", err)
+	}
+
+	// Optional: if you prefer builder-style in your own wrappers, bind dialect + executor once:
+	qb := e.Builder()
+	var rows []map[string]any
+	if err := qb.Select("id").From("users").Limit(1).All(ctx, &rows); err != nil {
+		log.Fatalf("select: %v", err)
 	}
 }
 ```
@@ -82,14 +95,39 @@ ctx := context.Background()
 user := User{Name: "Alice", Age: 30}
 
 // Insert a record
-_, err := e.InsertInto("users").
+_, err := e.Insert("users").
 	Model(&user).
 	Exec(ctx)
 
 // Insert with specific columns
-_, err := e.InsertInto("users").
+_, err := e.Insert("users").
 	Columns("name", "age").
 	Values("Bob", 25).
+	Exec(ctx)
+
+// Insert with map (map[string]any)
+_, err := e.Insert("users").
+	Map(map[string]any{"name": "Carol", "age": 20}).
+	Exec(ctx)
+
+// High-throughput inserts with predefined columns:
+// If your map keys are already normalized to lower-case, prefer MapsLowerKeys to reduce per-row overhead.
+rows := []map[string]any{
+	{"name": "Alice", "age": 25},
+	{"name": "Bob", "age": 28},
+}
+_, err = e.Insert("users").
+	Columns("name", "age").
+	MapsLowerKeys(rows).
+	Exec(ctx)
+
+// Batch update (single SQL with CASE WHEN):
+usersToUpdate := []User{
+	{ID: 1, Name: "Alice", Age: 31},
+	{ID: 2, Name: "Bob", Age: 26},
+}
+_, err = e.Update("").
+	Models(usersToUpdate).
 	Exec(ctx)
 ```
 
@@ -118,38 +156,57 @@ err := e.Select().
 	From("users").
 	WhereIn("id", []int{1, 2, 3}).
 	All(ctx, &users)
-
-// If the column comes from untrusted input, prefer WhereInIdent.
-err = e.Select().
-    From("users").
-    WhereInIdent("id", []int{1, 2, 3}).
-    All(ctx, &users)
 ```
 
 #### Update
 
 ```go
-// 使用结构体更新（标记了 `omitempty` 的字段在未启用 IncludeZero 时会被跳过）
+// Update with struct model (fields tagged with `omitempty` are skipped unless IncludeZero is enabled)
 u.Age = 31
 _, err := e.Update("users").
-	Model(&u). // 也可以使用 SetStruct
+	Model(&u).
 	Where("id = ?", u.ID).
 	Exec(ctx)
 
-// 更新指定列
+// Update with explicit columns
 _, err := e.Update("users").
 	Set("age", 32).
 	Where("name = ?", "Alice").
-	WhereLike("email", "%@example.com"). // 使用 WhereLike
+	WhereLike("email", "%@example.com").
 	Exec(ctx)
+
+// Update with map (keys must be valid column identifiers)
+_, err = e.Update("users").
+	Map(map[string]any{"age": 33}).
+	Where("id = ?", 1).
+	Exec(ctx)
+
+// Batch update (single SQL via CASE WHEN)
+batch := []User{
+    {ID: 1, Name: "Alice", Age: 25},
+    {ID: 2, Name: "Bob", Age: 28},
+}
+_, err = e.Update("").Models(batch).Exec(ctx)
 ```
+
+Safety note:
+- `Update(table)` requires a non-empty WHERE by default (to prevent updating the whole table).
+- If you really want to update all rows, use `AllowEmptyWhere()` explicitly.
 
 #### Delete
 
 ```go
-_, err := e.DeleteFrom("users").
+_, err := e.Delete("users").
 	Where("id = ?", 1).
 	Exec(ctx)
+```
+
+Safety note:
+- `Delete(table)` requires a non-empty WHERE by default (to prevent deleting the whole table).
+- If you really want to delete all rows, use `AllowEmptyWhere()` explicitly:
+
+```go
+_, err := e.Delete("users").AllowEmptyWhere().Exec(ctx)
 ```
 
 ### Transactions
@@ -159,7 +216,7 @@ _, err := e.DeleteFrom("users").
 ```go
 err := e.Transaction(ctx, func(tx *engine.Tx) error {
 	// Operations inside transaction use 'tx' instead of 'e'
-	if _, err := tx.InsertInto("users").Values("Dave", 40).Exec(ctx); err != nil {
+	if _, err := tx.Insert("users").Values("Dave", 40).Exec(ctx); err != nil {
 		return err
 	}
 	
@@ -181,6 +238,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/nikola-chen/corm/engine"
@@ -212,7 +270,7 @@ func main() {
 		}),
 	)
 	if err != nil {
-		panic(err)
+		log.Fatalf("open db: %v", err)
 	}
 	defer e.Close()
 
@@ -220,28 +278,35 @@ func main() {
 
 	// 2. Insert with Model & Returning (PostgreSQL support)
 	newUser := User{Name: "John Doe", Email: "john@example.com", Age: 30, Status: 1}
-	var newID int
-	
-	// Note: MySQL doesn't support RETURNING in older versions, this is for demo.
-	// For MySQL, use LastInsertId() from Result.
-	if e.DriverName() == "postgres" {
-		err = e.InsertInto("").Model(&newUser).Returning("id").One(ctx, &newID)
-	} else {
-		res, _ := e.InsertInto("").Model(&newUser).Exec(ctx)
-		id, _ := res.LastInsertId()
-		newID = int(id)
+	newID, err := e.Insert("").Model(&newUser).ExecAndReturnID(ctx, "id")
+	if err != nil {
+		log.Fatalf("insert user: %v", err)
 	}
 
 	// 3. Batch Insert using Values
-	e.InsertInto("users").
+	e.Insert("users").
 		Columns("name", "email", "age", "status").
 		Values("Alice", "alice@test.com", 25, 1).
 		Values("Bob", "bob@test.com", 28, 0).
 		Exec(ctx)
 
+	// 3.1 Batch Insert using struct slice
+	users := []User{
+		{Name: "Alice", Email: "alice@test.com", Age: 25, Status: 1},
+		{Name: "Bob", Email: "bob@test.com", Age: 28, Status: 0},
+	}
+	e.Insert("").Models(users).Exec(ctx)
+
+	// 3.2 Batch Insert using map slice
+	rows := []map[string]any{
+		{"name": "Alice", "email": "alice@test.com", "age": 25, "status": 1},
+		{"name": "Bob", "email": "bob@test.com", "age": 28, "status": 0},
+	}
+	e.Insert("users").Columns("name", "email", "age", "status").Maps(rows).Exec(ctx)
+
 	// 4. Complex Select Query
 	// SELECT u.id, u.name, count(o.id) as order_count 
-	// FROM users u 
+	// FROM users AS u 
 	// LEFT JOIN orders o ON o.user_id = u.id 
 	// WHERE u.status = 1 AND u.age > 18 
 	// GROUP BY u.id 
@@ -256,9 +321,10 @@ func main() {
 	}
 	
 	var stats []UserStat
-	err = e.Select("u.id", "u.name", "count(o.id) as order_count").
-		From("users u").
-		Join("LEFT JOIN orders o ON o.user_id = u.id").
+	err = e.Select("u.id", "u.name").
+		SelectExpr(clause.Raw("count(o.id) as order_count")).
+		FromAs("users", "u").
+		LeftJoinAs("orders", "o", clause.Raw("o.user_id = u.id")).
 		Where("u.status = ?", 1).
 		Where("u.age > ?", 18).
 		WhereIn("u.id", []int{1, 2, 3, 4, 5}). // Helper for IN clause
@@ -273,35 +339,42 @@ func main() {
 		fmt.Printf("Query failed: %v\n", err)
 	}
 
-	// 5. Update using SetMap and SetStruct
+	// 5. Update using Map and Model
 	// Update via Struct (auto-infers table from struct)
 	updateUser := User{ID: newID, Name: "John Updated"}
 	e.Update("").
-		SetStruct(&updateUser). // Only updates non-zero fields (unless configured otherwise)
+		Model(&updateUser).
 		Where("id = ?", newID).
 		Exec(ctx)
 
 	// Update via Map or Set method
 	e.Update("users").
-		SetMap(map[string]any{"status": 0}).
+		Map(map[string]any{"status": 0}).
 		Set("updated_at", time.Now()).
 		Where("age < ?", 20).
+		Exec(ctx)
+
+	// 5. Update with Limit (MySQL only)
+	_, err = e.Update("users").
+		Set("status", 0).
+		Where("age < ?", 18).
+		Limit(100). // Limit affected rows
 		Exec(ctx)
 
 	// 6. Transaction
 	err = e.Transaction(ctx, func(tx *engine.Tx) error {
 		// Use 'tx' for all operations inside the transaction
 		
-		// 6.1 Lock row (if needed, via Raw SQL)
-		// tx.ExecContext(ctx, "SELECT * FROM users WHERE id = ? FOR UPDATE", newID)
+		// 6.1 Lock row (if needed)
+		// _ = tx.Select("*").From("users").Where("id = ?", newID).ForUpdate().One(ctx, &User{})
 		
 		// 6.2 Perform updates
-		if _, err := tx.DeleteFrom("users").Where("status = ?", 0).Exec(ctx); err != nil {
+		if _, err := tx.Delete("users").Where("status = ?", 0).Exec(ctx); err != nil {
 			return err // Rollback
 		}
 		
 		// 6.3 Insert log
-		if _, err := tx.InsertInto("logs").Columns("msg").Values("Cleanup done").Exec(ctx); err != nil {
+		if _, err := tx.Insert("logs").Columns("msg").Values("Cleanup done").Exec(ctx); err != nil {
 			return err // Rollback
 		}
 
@@ -317,15 +390,16 @@ func main() {
 ## Advanced Usage
 
 ### SQL Logging
-
-Enable logging via `WithConfig`:
-
-```go
-engine.Open("mysql", dsn, engine.WithConfig(engine.Config{
-    LogSQL:    true,
-    SlowQuery: 200 * time.Millisecond,
-}))
-```
+ 
+ Enable logging via `WithConfig`:
+ 
+ ```go
+ engine.Open("mysql", dsn, engine.WithConfig(engine.Config{
+     LogSQL:    true,
+     LogArgs:   true, // Enable argument logging (redacted by default for security)
+     SlowQuery: 200 * time.Millisecond,
+ }))
+ ```
 
 ### Raw SQL
 
@@ -333,13 +407,53 @@ For complex queries, you can use `Raw` clauses, but be careful with SQL injectio
 
 ```go
 e.Select().
-    WhereRaw("age > ? AND name LIKE ?", 18, "A%").
+    Where("age > ? AND name LIKE ?", 18, "A%").
     All(ctx, &users)
+```
+
+Safety note:
+- Treat these as dangerous entry points unless the SQL is a trusted constant/whitelist: `Where`, `JoinRaw`, `Having`, `OrderByRaw`, `SuffixRaw`, `clause.Raw`.
+- Prefer structured APIs like `WhereEq`, `WhereIn`, `OrderByAsc/Desc`, and `Join/JoinAs` whenever possible.
+
+Note (PostgreSQL):
+- When using string-based SQL fragments with args (e.g. `Where("x = ?", v)`), use `?` as the placeholder in the fragment.
+- Avoid mixing JSONB operators `?/?|/?&` with `?` placeholders in the same parameterized fragment. Prefer `jsonb_exists/jsonb_exists_any/jsonb_exists_all` functions.
+
+### SQL Builder (Without Execution)
+
+If you only need to build SQL strings without executing them (e.g., for use with other libraries or testing), you can use the `builder` package directly with the new `API` helper.
+
+```go
+import "github.com/nikola-chen/corm/builder"
+
+// Initialize a builder for MySQL (or Postgres)
+// Note: Ensure the DB driver is imported (e.g. _ "github.com/go-sql-driver/mysql").
+qb := builder.MySQL()
+// Or: qb := builder.Postgres()
+// Or: qb := builder.Dialect(driverName)       // carries error until SQL()/Exec()/Query()
+// Or: qb := builder.MustDialect(driverName)   // panics early if unsupported (avoid in request path)
+// Or: qb := builder.For(driverName, db)       // binds executor + dialect in one line
+// Or: qb := builder.MustFor(driverName, db)   // panics early if unsupported (avoid in request path)
+
+// Build UPDATE string
+sqlStr, args, err := qb.Update("users").
+    Set("name", "New Name").
+    Where("id = ?", 1).
+    SQL()
+
+// Build SELECT string
+sqlStr, args, err = qb.Select("id", "name").
+    From("users").
+    Where("age > ?", 18).
+    SQL()
 ```
 
 ## Advanced Features
 
 `corm` now supports a wide range of advanced SQL features.
+
+Security note:
+- `clause.Raw(...)`, `JoinRaw(...)`, `OrderByRaw(...)`, `SuffixRaw(...)` accept raw SQL. Never pass untrusted user input into these APIs.
 
 ### Logical Operators
 
@@ -355,26 +469,16 @@ e.Select().From("users").
 
 ### JOINs
 
-Support for `LeftJoin`, `RightJoin`, `InnerJoin`, `CrossJoin`, `FullJoin`.
+Support for structured joins (`Join`/`LeftJoin`/`RightJoin`/`InnerJoin`/`FullJoin`/`CrossJoin`) and raw joins (`JoinRaw`).
 
-Basic usage (Raw ON condition):
-
-```go
-e.Select("u.name", "o.amount").
-    From("users u").
-    LeftJoin("orders o", "u.id = o.user_id").
-    Where("o.amount > ?", 100).
-    All(ctx, &results)
-```
-
-Safe usage with arguments (using `LeftJoinOn`, etc.):
+Recommended usage with arguments (using `FromAs` + `*JoinAs`):
 
 ```go
 import "github.com/nikola-chen/corm/clause"
 
 e.Select("u.name").
     FromAs("users", "u").
-    LeftJoinOn("orders o", clause.And(
+    LeftJoinAs("orders", "o", clause.And(
         clause.Raw("u.id = o.user_id"),
         clause.Eq("o.status", "active"), // Bind: "active"
     )).
@@ -388,21 +492,26 @@ e.Select("u.name").
 ```go
 import (
     "errors"
+    "fmt"
 
     "github.com/nikola-chen/corm/engine"
 )
 
 err := e.Transaction(ctx, func(tx *engine.Tx) error {
-    if _, err := tx.InsertInto("logs").Values("Start").Exec(ctx); err != nil {
-        return err
+    if _, err := tx.Insert("logs").Values("Start").Exec(ctx); err != nil {
+        return fmt.Errorf("failed to insert log: %w", err)
     }
 
-    _ = tx.Transaction(ctx, func(subTx *engine.Tx) error {
-        if _, err := subTx.InsertInto("users").Values("New User").Exec(ctx); err != nil {
+    // Nested transaction
+    if err := tx.Transaction(ctx, func(subTx *engine.Tx) error {
+        if _, err := subTx.Insert("users").Values("New User").Exec(ctx); err != nil {
             return err
         }
-        return errors.New("oops")
-    })
+        return errors.New("oops") // Triggers rollback of sub-transaction
+    }); err != nil {
+        // Handle sub-transaction error (optional)
+        return err
+    }
 
     return nil
 })
@@ -435,7 +544,7 @@ e.Select().From("users").
 ```go
 sub := e.Select("id", "name").From("old_users")
 
-e.InsertInto("new_users").
+e.Insert("new_users").
     Columns("id", "name").
     FromSelect(sub).
     Exec(ctx)
@@ -451,11 +560,12 @@ type Agg struct {
     AvgAge float64 `db:"avg_age"`
 }
 var a Agg
-err := e.Select(
-    clause.Alias(clause.Count("id"), "cnt"),
-    clause.Alias(clause.Avg("age"), "avg_age"),
-).
-    From("users").
+	err := e.Select().
+		SelectExpr(
+			clause.Raw(clause.Alias(clause.Count("id"), "cnt")),
+			clause.Raw(clause.Alias(clause.Avg("age"), "avg_age")),
+		).
+		From("users").
     One(ctx, &a)
 ```
 
@@ -469,10 +579,37 @@ q2 := e.Select("id").From("users_2024")
 q1.UnionAll(q2).All(ctx, &ids)
 ```
 
-### DISTINCT & TOP
+### DISTINCT & LIMIT
 
 ```go
-e.Select("name").From("users").Distinct().Top(5).All(ctx, &names)
+e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
+```
+
+### Map Operations
+
+```go
+// INSERT with Map (keys are sorted for determinism)
+_, err := e.Insert("users").
+	Map(map[string]any{"name": "Alice", "age": 30}).
+	Exec(ctx)
+
+// UPDATE with Map
+_, err := e.Update("users").
+	Map(map[string]any{
+		"age": 31,
+		"status": "active",
+	}).
+	Where("name = ?", "Alice").
+	Exec(ctx)
+
+// SELECT with WhereMap (automatic AND)
+err := e.Select("id", "name").
+	From("users").
+	WhereMap(map[string]any{
+		"age": 30,
+		"active": true,
+	}).
+	All(ctx, &users)
 ```
 
 ## License

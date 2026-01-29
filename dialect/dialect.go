@@ -12,8 +12,6 @@ type Dialect interface {
 	QuoteIdent(ident string) string
 	// SupportsReturning reports whether the dialect supports the RETURNING clause.
 	SupportsReturning() bool
-	// RewritePlaceholders rewrites placeholders in a raw SQL string.
-	RewritePlaceholders(sql string, startIndex int) (rewritten string, nextIndex int)
 }
 
 var (
@@ -36,3 +34,11 @@ func Get(driverName string) (Dialect, bool) {
 	return d, ok
 }
 
+// MustGet returns the dialect for a driver or panics if it is not registered.
+func MustGet(driverName string) Dialect {
+	d, ok := Get(driverName)
+	if !ok || d == nil {
+		panic("corm: unsupported dialect: " + driverName)
+	}
+	return d
+}

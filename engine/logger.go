@@ -12,4 +12,3 @@ func (NopLogger) Printf(format string, args ...any) {}
 func StdLogger() Logger {
 	return log.New(os.Stdout, "[corm] ", log.LstdFlags)
 }
-

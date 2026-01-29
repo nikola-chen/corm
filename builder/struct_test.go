@@ -39,15 +39,9 @@ func (m *mockExecutor) QueryContext(ctx context.Context, query string, args ...a
 	return nil, nil
 }
 
-func (m *mockExecutor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	m.sql = query
-	m.args = args
-	return nil
-}
-
 func TestInsertRecord(t *testing.T) {
 	exec := &mockExecutor{}
-	d, _ := dialect.Get("mysql")
+	qb := builder.NewAPI(dialect.MustGet("mysql"), exec)
 
 	user := User{
 		Name:      "Alice",
@@ -55,7 +49,7 @@ func TestInsertRecord(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	b := builder.InsertInto(exec, d, "").Model(user)
+	b := qb.Insert("").Model(user)
 	sqlStr, args, err := b.SQL()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -74,14 +68,14 @@ func TestInsertRecord(t *testing.T) {
 
 func TestUpdateModel(t *testing.T) {
 	exec := &mockExecutor{}
-	d, _ := dialect.Get("postgres")
+	qb := builder.NewAPI(dialect.MustGet("postgres"), exec)
 
 	user := User{
 		Name: "Bob",
 		Age:  25,
 	}
 
-	b := builder.Update(exec, d, "").SetStruct(user).Where("id = ?", 1)
+	b := qb.Update("").Model(user).Where("id = ?", 1)
 	sqlStr, args, err := b.SQL()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

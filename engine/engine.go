@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nikola-chen/corm/builder"
+	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
 )
 
@@ -30,6 +31,17 @@ type Config struct {
 	// ArgFormatter formats each argument when LogArgs is enabled.
 	// If nil, a safe default formatter is used.
 	ArgFormatter func(any) string
+	// MaxLogSQLLen truncates SQL in logs to at most this many bytes.
+	// If 0, a safe default is used.
+	MaxLogSQLLen int
+	// MaxLogArgsItems limits how many args are rendered when LogArgs is enabled.
+	// If 0, a safe default is used.
+	MaxLogArgsItems int
+	// MaxLogArgsLen limits the total args string length when LogArgs is enabled.
+	// If 0, a safe default is used.
+	MaxLogArgsLen int
+	// LogCanceled controls whether context canceled/deadline errors are logged verbosely.
+	LogCanceled bool
 	// SlowQuery sets the threshold for slow query logging.
 	SlowQuery time.Duration
 }
@@ -132,10 +144,14 @@ func (e *Engine) Transaction(ctx context.Context, fn func(*Tx) error) (err error
 
 	defer func() {
 		if p := recover(); p != nil {
-			_ = tx.Rollback()
+			if rbErr := tx.Rollback(); rbErr != nil && e.logger != nil {
+				e.logger.Printf("corm: rollback failed err=%v", rbErr)
+			}
 			panic(p) // re-throw panic after rollback
 		} else if err != nil {
-			_ = tx.Rollback()
+			if rbErr := tx.Rollback(); rbErr != nil && e.logger != nil {
+				e.logger.Printf("corm: rollback failed err=%v", rbErr)
+			}
 		} else {
 			err = tx.Commit()
 		}
@@ -150,14 +166,14 @@ func (e *Engine) Select(columns ...string) *builder.SelectBuilder {
 	return builder.Select(e.executor(), e.dialect, columns...)
 }
 
-// SelectColumns creates a new SelectBuilder with a slice of columns.
-func (e *Engine) SelectColumns(columns []string) *builder.SelectBuilder {
-	return builder.Select(e.executor(), e.dialect, columns...)
+// SelectExpr creates a new SelectBuilder with expression columns.
+func (e *Engine) SelectExpr(columns ...clause.Expr) *builder.SelectBuilder {
+	return builder.Select(e.executor(), e.dialect).SelectExpr(columns...)
 }
 
-// InsertInto creates a new InsertBuilder.
-func (e *Engine) InsertInto(table string) *builder.InsertBuilder {
-	return builder.InsertInto(e.executor(), e.dialect, table)
+// Insert creates a new InsertBuilder.
+func (e *Engine) Insert(table string) *builder.InsertBuilder {
+	return builder.Insert(e.executor(), e.dialect, table)
 }
 
 // Update creates a new UpdateBuilder.
@@ -165,7 +181,14 @@ func (e *Engine) Update(table string) *builder.UpdateBuilder {
 	return builder.Update(e.executor(), e.dialect, table)
 }
 
-// DeleteFrom creates a new DeleteBuilder.
-func (e *Engine) DeleteFrom(table string) *builder.DeleteBuilder {
-	return builder.DeleteFrom(e.executor(), e.dialect, table)
+// Delete creates a new DeleteBuilder.
+func (e *Engine) Delete(table string) *builder.DeleteBuilder {
+	return builder.Delete(e.executor(), e.dialect, table)
+}
+
+// Builder returns a builder.API that is pre-bound to this Engine's dialect and executor.
+// It is useful when you want to pass a lightweight query builder handle around without
+// repeating dialect/executor wiring.
+func (e *Engine) Builder() *builder.API {
+	return builder.NewAPI(e.dialect, e.executor())
 }

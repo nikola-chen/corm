@@ -19,19 +19,19 @@ This repository provides a lightweight ORM/query-builder for Go with MySQL and P
 - Engine: `engine.Open`, `engine.WithDB`, `(*Engine).Transaction`
 - Builders:
   - SELECT: `e.Select(...).From(...).Where(...).Limit(...).Offset(...).All/One`
-  - INSERT: `e.InsertInto(\"...\").Model(&obj)` or `Columns(...).Values(...)`
-  - UPDATE: `e.Update(\"...\").SetStruct(&obj)` or `Set(...).Where(...)`
-  - DELETE: `e.DeleteFrom(\"...\").Where(...)`
+  - INSERT: `e.Insert(\"...\").Model(&obj)` or `Columns(...).Values(...)`
+  - UPDATE: `e.Update(\"...\").Model(&obj)` or `Set(...).Where(...)`
+  - DELETE: `e.Delete(\"...\").Where(...)` (default requires WHERE; use `AllowEmptyWhere()` to override)
+- SQL-only builder helper (no execution): `qb := builder.MySQL()` / `builder.Postgres()` then `qb.Select/Insert/Update/Delete(...).SQL()`
 - Expressions: `clause.In`, `clause.And`, `clause.Or`, `clause.Raw`
 
 ## Scanning targets
 
 - `[]Struct` / `[]*Struct`
 - `Struct` / `*Struct`
-- `[]map[string]T` and `map[string]T` (map key must be string)
+- `[]map[string]any` and `map[string]any`
 
 ## Dialects
 
 - MySQL: `?` placeholders
 - Postgres: `$1,$2,...` placeholders
-

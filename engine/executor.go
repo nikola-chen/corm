@@ -3,19 +3,16 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/nikola-chen/corm/builder"
 )
 
-type coreExecutor interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 type loggingExecutor struct {
-	inner  coreExecutor
+	inner  builder.Executor
 	logger Logger
 	cfg    Config
 }
@@ -34,10 +31,6 @@ func (l *loggingExecutor) QueryContext(ctx context.Context, query string, args .
 	return rows, err
 }
 
-func (l *loggingExecutor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return l.inner.QueryRowContext(ctx, query, args...)
-}
-
 func (l *loggingExecutor) log(query string, args []any, dur time.Duration, err error) {
 	if l.logger == nil {
 		return
@@ -45,16 +38,39 @@ func (l *loggingExecutor) log(query string, args []any, dur time.Duration, err e
 	if !l.cfg.LogSQL && (l.cfg.SlowQuery <= 0 || dur < l.cfg.SlowQuery) {
 		return
 	}
+	if !l.cfg.LogCanceled && err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			err = errors.New("corm: context canceled")
+		}
+	}
+	query = truncateSQL(query, l.cfg.MaxLogSQLLen)
 	if l.cfg.LogArgs {
-		l.logger.Printf("sql=%s args=%s dur=%s err=%v", query, formatArgs(args, l.cfg.ArgFormatter), dur, err)
+		l.logger.Printf("sql=%s args=%s dur=%s err=%v", query, formatArgs(args, l.cfg.ArgFormatter, l.cfg.MaxLogArgsItems, l.cfg.MaxLogArgsLen), dur, err)
 		return
 	}
 	l.logger.Printf("sql=%s argc=%d dur=%s err=%v", query, len(args), dur, err)
 }
 
-func formatArgs(args []any, argFormatter func(any) string) string {
-	const maxItems = 20
-	const maxLen = 512
+func truncateSQL(sql string, maxLen int) string {
+	const defaultMax = 2048
+	if maxLen <= 0 {
+		maxLen = defaultMax
+	}
+	if len(sql) <= maxLen {
+		return sql
+	}
+	return sql[:maxLen] + "…"
+}
+
+func formatArgs(args []any, argFormatter func(any) string, maxItems int, maxLen int) string {
+	const defaultMaxItems = 20
+	const defaultMaxLen = 512
+	if maxItems <= 0 {
+		maxItems = defaultMaxItems
+	}
+	if maxLen <= 0 {
+		maxLen = defaultMaxLen
+	}
 	if argFormatter == nil {
 		argFormatter = defaultArgFormatter
 	}
@@ -85,12 +101,15 @@ func defaultArgFormatter(v any) string {
 	case nil:
 		return "null"
 	case string:
-		if len(x) > 32 {
-			return fmt.Sprintf("redacted(len=%d)", len(x))
-		}
-		return fmt.Sprintf("%q", x)
+		return fmt.Sprintf("redacted(len=%d)", len(x))
 	case []byte:
 		return fmt.Sprintf("bytes(len=%d)", len(x))
+	case error:
+		return fmt.Sprintf("%T(redacted)", v)
+	case fmt.Stringer:
+		return fmt.Sprintf("%T(redacted)", v)
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return fmt.Sprintf("%v", v)
 	default:
 		s := fmt.Sprintf("%v", v)
 		if len(s) > 64 {
@@ -100,7 +119,7 @@ func defaultArgFormatter(v any) string {
 	}
 }
 
-func (e *Engine) executor() coreExecutor {
+func (e *Engine) executor() builder.Executor {
 	if e.logger == nil {
 		return e.db
 	}
@@ -110,7 +129,7 @@ func (e *Engine) executor() coreExecutor {
 	return &loggingExecutor{inner: e.db, logger: e.logger, cfg: e.cfg}
 }
 
-func (t *Tx) executor() coreExecutor {
+func (t *Tx) executor() builder.Executor {
 	if t.logger == nil {
 		return t.tx
 	}

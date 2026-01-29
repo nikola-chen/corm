@@ -4,10 +4,16 @@ import (
 	"context"
 	"errors"
 
-	"github.com/nikola-chen/corm/exec"
+	"github.com/nikola-chen/corm/scan"
 )
 
 func (b *InsertBuilder) One(ctx context.Context, dest any) error {
+	if b.err != nil {
+		return b.err
+	}
+	if b.exec == nil {
+		return errors.New("corm: missing Executor for insert")
+	}
 	if len(b.returning) == 0 {
 		return errors.New("corm: insert.One requires Returning(...)")
 	}
@@ -22,6 +28,5 @@ func (b *InsertBuilder) One(ctx context.Context, dest any) error {
 	if err != nil {
 		return err
 	}
-	return exec.ScanOne(rows, dest)
+	return scan.ScanOne(rows, dest)
 }
-

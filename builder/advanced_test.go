@@ -4,14 +4,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/nikola-chen/corm/builder"
 	"github.com/nikola-chen/corm/clause"
-	"github.com/nikola-chen/corm/dialect"
 )
 
 func TestDistinct(t *testing.T) {
-	d, _ := dialect.Get("postgres")
-	q := builder.Select(nil, d, "name").
+	q := pgQB().Select("name").
 		From("users").
 		Distinct()
 
@@ -26,11 +23,10 @@ func TestDistinct(t *testing.T) {
 	}
 }
 
-func TestTop(t *testing.T) {
-	d, _ := dialect.Get("mysql")
-	q := builder.Select(nil, d, "name").
+func TestLimit(t *testing.T) {
+	q := mysqlQB().Select("name").
 		From("users").
-		Top(5)
+		Limit(5)
 
 	sqlStr, args, err := q.SQL()
 	if err != nil {
@@ -48,8 +44,7 @@ func TestTop(t *testing.T) {
 }
 
 func TestLogicalOps(t *testing.T) {
-	d, _ := dialect.Get("postgres")
-	q := builder.Select(nil, d, "*").
+	q := pgQB().Select("*").
 		From("users").
 		WhereExpr(clause.Not(clause.Raw("age < ?", 18))).
 		WhereExpr(clause.IsNull("deleted_at")).
@@ -71,8 +66,8 @@ func TestLogicalOps(t *testing.T) {
 }
 
 func TestAlias(t *testing.T) {
-	d, _ := dialect.Get("postgres")
-	q := builder.Select(nil, d, clause.Alias("count(*)", "cnt")).
+	q := pgQB().Select().
+		SelectExpr(clause.Raw(clause.Alias("count(*)", "cnt"))).
 		From("users")
 
 	sqlStr, _, err := q.SQL()
@@ -86,28 +81,35 @@ func TestAlias(t *testing.T) {
 	}
 }
 
+func TestSelectColumnsStrictRejectsExpressions(t *testing.T) {
+	q := pgQB().Select("count(*)").From("users")
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func TestJoins(t *testing.T) {
-	d, _ := dialect.Get("postgres")
-	q := builder.Select(nil, d, "u.name", "p.title").
-		From("users u").
-		LeftJoin("posts p", "u.id = p.user_id").
-		InnerJoin("comments c", "p.id = c.post_id")
+	q := pgQB().Select("u.name", "p.title").
+		FromAs("users", "u").
+		LeftJoinAs("posts", "p", clause.Raw("u.id = p.user_id")).
+		InnerJoinAs("comments", "c", clause.Raw("p.id = c.post_id"))
 
 	sqlStr, _, err := q.SQL()
 	if err != nil {
 		t.Fatalf("SQL() error: %v", err)
 	}
 
-	wantSQL := `SELECT "u"."name", "p"."title" FROM users u LEFT JOIN posts p ON u.id = p.user_id INNER JOIN comments c ON p.id = c.post_id`
+	wantSQL := `SELECT "u"."name", "p"."title" FROM "users" AS u LEFT JOIN "posts" AS p ON u.id = p.user_id INNER JOIN "comments" AS c ON p.id = c.post_id`
 	if sqlStr != wantSQL {
 		t.Fatalf("want: %s, got: %s", wantSQL, sqlStr)
 	}
 }
 
 func TestUnion(t *testing.T) {
-	d, _ := dialect.Get("mysql")
-	u1 := builder.Select(nil, d, "id", "name").From("users").Where("id < ?", 10)
-	u2 := builder.Select(nil, d, "id", "name").From("users").Where("id > ?", 20)
+	qb := mysqlQB()
+	u1 := qb.Select("id", "name").From("users").Where("id < ?", 10)
+	u2 := qb.Select("id", "name").From("users").Where("id > ?", 20)
 
 	q := u1.Union(u2)
 
@@ -116,7 +118,7 @@ func TestUnion(t *testing.T) {
 		t.Fatalf("SQL() error: %v", err)
 	}
 
-	wantSQL := "SELECT `id`, `name` FROM `users` WHERE (id < ?) UNION SELECT `id`, `name` FROM `users` WHERE (id > ?)"
+	wantSQL := "SELECT `id`, `name` FROM `users` WHERE (id < ?) UNION (SELECT `id`, `name` FROM `users` WHERE (id > ?))"
 	if sqlStr != wantSQL {
 		t.Fatalf("want: %s, got: %s", wantSQL, sqlStr)
 	}
@@ -128,8 +130,11 @@ func TestUnion(t *testing.T) {
 }
 
 func TestAggregates(t *testing.T) {
-	d, _ := dialect.Get("postgres")
-	q := builder.Select(nil, d, clause.Count("id"), clause.Max("age")).
+	q := pgQB().Select().
+		SelectExpr(
+			clause.Raw(clause.Count("id")),
+			clause.Raw(clause.Max("age")),
+		).
 		From("users")
 
 	sqlStr, _, err := q.SQL()
@@ -144,9 +149,9 @@ func TestAggregates(t *testing.T) {
 }
 
 func TestInsertSelect(t *testing.T) {
-	d, _ := dialect.Get("postgres")
-	sub := builder.Select(nil, d, "id", "name").From("old_users").Where("age > ?", 30)
-	q := builder.InsertInto(nil, d, "users").
+	qb := pgQB()
+	sub := qb.Select("id", "name").From("old_users").Where("age > ?", 30)
+	q := qb.Insert("users").
 		Columns("id", "name").
 		FromSelect(sub)
 
@@ -166,9 +171,9 @@ func TestInsertSelect(t *testing.T) {
 }
 
 func TestSubqueryFrom(t *testing.T) {
-	d, _ := dialect.Get("postgres")
-	sub := builder.Select(nil, d, "id", "name").From("users").Where("age > ?", 18)
-	q := builder.Select(nil, d, "id").
+	qb := pgQB()
+	sub := qb.Select("id", "name").From("users").Where("age > ?", 18)
+	q := qb.Select("id").
 		FromSelect(sub, "u").
 		Where("u.name = ?", "alice")
 
@@ -177,7 +182,6 @@ func TestSubqueryFrom(t *testing.T) {
 		t.Fatalf("SQL() error: %v", err)
 	}
 
-	// Note: quoteMaybe for table "("... produces raw string if parens exist.
 	wantSQL := `SELECT "id" FROM (SELECT "id", "name" FROM "users" WHERE (age > $1)) AS u WHERE (u.name = $2)`
 	if sqlStr != wantSQL {
 		t.Fatalf("want: %s, got: %s", wantSQL, sqlStr)
@@ -189,9 +193,9 @@ func TestSubqueryFrom(t *testing.T) {
 }
 
 func TestSubqueryWhere(t *testing.T) {
-	d, _ := dialect.Get("postgres")
-	sub := builder.Select(nil, d, "id").From("banned_users")
-	q := builder.Select(nil, d, "*").
+	qb := pgQB()
+	sub := qb.Select("id").From("banned_users")
+	q := qb.Select("*").
 		From("users").
 		WhereInSubquery("id", sub)
 
@@ -200,7 +204,7 @@ func TestSubqueryWhere(t *testing.T) {
 		t.Fatalf("SQL() error: %v", err)
 	}
 
-	wantSQL := `SELECT * FROM "users" WHERE (id IN (SELECT "id" FROM "banned_users"))`
+	wantSQL := `SELECT * FROM "users" WHERE ("id" IN (SELECT "id" FROM "banned_users"))`
 	if sqlStr != wantSQL {
 		t.Fatalf("want: %s, got: %s", wantSQL, sqlStr)
 	}

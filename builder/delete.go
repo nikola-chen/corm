@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -13,67 +12,84 @@ import (
 
 // DeleteBuilder builds DELETE statements.
 type DeleteBuilder struct {
-	exec  executor
-	d     dialect.Dialect
-	table string
-	where []clause.Expr
-	err   error
+	exec            Executor
+	d               dialect.Dialect
+	table           string
+	where           whereBuilder
+	allowEmptyWhere bool
+	limit           *int
+	err             error
 }
 
-func newDelete(exec executor, d dialect.Dialect, table string) *DeleteBuilder {
-	return &DeleteBuilder{exec: exec, d: d, table: table}
+const (
+	deleteWhereExpr = iota
+	deleteWhereSubquery
+)
+
+func newDelete(exec Executor, d dialect.Dialect, table string) *DeleteBuilder {
+	return &DeleteBuilder{exec: exec, d: d, table: table, where: whereBuilder{d: d}}
+}
+
+func (b *DeleteBuilder) AllowEmptyWhere() *DeleteBuilder {
+	b.allowEmptyWhere = true
+	return b
 }
 
 // Where adds a WHERE condition.
 // Do not concatenate untrusted user input into the SQL string; use args for parameter binding.
 func (b *DeleteBuilder) Where(sql string, args ...any) *DeleteBuilder {
-	b.where = append(b.where, clause.Raw(sql, args...))
+	if b.err != nil {
+		return b
+	}
+	b.where.Where(sql, args...)
 	return b
-}
-
-func (b *DeleteBuilder) WhereRaw(sql string, args ...any) *DeleteBuilder {
-	return b.Where(sql, args...)
 }
 
 func (b *DeleteBuilder) WhereEq(column string, value any) *DeleteBuilder {
 	if b.err != nil {
 		return b
 	}
-	col, ok := quoteIdentStrict(b.d, column)
-	if !ok {
-		b.err = errors.New("corm: invalid column identifier")
-		return b
+	b.where.WhereEq(column, value)
+	if b.where.err != nil {
+		b.err = b.where.err
 	}
-	return b.Where(col+" = ?", value)
+	return b
 }
 
 // WhereIn adds a WHERE IN condition.
 func (b *DeleteBuilder) WhereIn(column string, args ...any) *DeleteBuilder {
-	return b.WhereExpr(clause.In(column, args...))
-}
-
-func (b *DeleteBuilder) WhereInIdent(column string, args ...any) *DeleteBuilder {
 	if b.err != nil {
 		return b
 	}
-	col, ok := quoteIdentStrict(b.d, column)
-	if !ok {
-		b.err = errors.New("corm: invalid column identifier")
-		return b
+	b.where.WhereIn(column, args...)
+	if b.where.err != nil {
+		b.err = b.where.err
 	}
-	return b.WhereExpr(clause.In(col, args...))
+	return b
 }
 
 func (b *DeleteBuilder) WhereLike(column string, value any) *DeleteBuilder {
 	if b.err != nil {
 		return b
 	}
-	col, ok := quoteIdentStrict(b.d, column)
-	if !ok {
-		b.err = errors.New("corm: invalid column identifier")
+	b.where.WhereLike(column, value)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+// WhereMap adds conditions in the form of "column = ?" joined by AND.
+// Keys are applied in sorted order to keep the generated SQL deterministic.
+func (b *DeleteBuilder) WhereMap(conditions map[string]any) *DeleteBuilder {
+	if b.err != nil {
 		return b
 	}
-	return b.Where(col+" LIKE ?", value)
+	b.where.WhereMap(conditions)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
 }
 
 // WhereSubquery adds a condition with a subquery: "column op (subquery)".
@@ -81,78 +97,95 @@ func (b *DeleteBuilder) WhereSubquery(column, op string, sub *SelectBuilder) *De
 	if b.err != nil {
 		return b
 	}
-	sqlStr, args, err := sub.sqlRaw()
-	if err != nil {
-		b.err = err
-		return b
+	b.where.WhereSubquery(column, op, sub)
+	if b.where.err != nil {
+		b.err = b.where.err
 	}
-	return b.Where(column+" "+op+" ("+sqlStr+")", args...)
+	return b
 }
 
 // WhereInSubquery adds a "column IN (subquery)" condition.
 func (b *DeleteBuilder) WhereInSubquery(column string, sub *SelectBuilder) *DeleteBuilder {
-	return b.WhereSubquery(column, "IN", sub)
+	if b.err != nil {
+		return b
+	}
+	b.where.WhereSubquery(column, "IN", sub)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
 }
 
 // WhereExpr adds a clause.Expr as a WHERE condition.
 func (b *DeleteBuilder) WhereExpr(e clause.Expr) *DeleteBuilder {
-	if strings.TrimSpace(e.SQL) == "" {
+	if b.err != nil {
 		return b
 	}
-	b.where = append(b.where, e)
+	b.where.WhereExpr(e)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
 	return b
 }
 
 // SQL generates the SQL query and arguments.
 func (b *DeleteBuilder) SQL() (string, []any, error) {
-	sqlStr, args, err := b.sqlRaw()
-	if err != nil {
-		return "", nil, err
-	}
-	rewritten, _ := b.d.RewritePlaceholders(sqlStr, 1)
-	return rewritten, args, nil
-}
-
-func (b *DeleteBuilder) sqlRaw() (string, []any, error) {
 	if b.err != nil {
 		return "", nil, b.err
+	}
+	if b.d == nil {
+		return "", nil, errors.New("corm: nil dialect")
 	}
 	if strings.TrimSpace(b.table) == "" {
 		return "", nil, errors.New("corm: missing table for delete")
 	}
 
-	var args []any
-	var buf bytes.Buffer
-	buf.Grow(96)
+	buf := getBuffer()
+	defer putBuffer(buf)
+	ab := newArgBuilder(b.d, 1)
 
 	buf.WriteString("DELETE FROM ")
-	buf.WriteString(quoteMaybe(b.d, b.table))
+	qTable, ok := quoteIdentStrict(b.d, b.table)
+	if !ok {
+		return "", nil, errors.New("corm: invalid table identifier")
+	}
+	buf.WriteString(qTable)
 
-	if len(b.where) > 0 {
-		buf.WriteString(" WHERE ")
-		wrote := 0
-		for _, w := range b.where {
-			if strings.TrimSpace(w.SQL) == "" {
-				continue
-			}
-			if wrote > 0 {
-				buf.WriteString(" AND ")
-			}
-			buf.WriteString("(")
-			buf.WriteString(w.SQL)
-			buf.WriteString(")")
-			args = append(args, w.Args...)
-			wrote++
-		}
-		if wrote == 0 {
-			buf.Truncate(buf.Len() - len(" WHERE "))
-		}
+	if err := b.where.appendWhere(buf, ab); err != nil {
+		return "", nil, err
+	}
+	if !b.allowEmptyWhere && len(b.where.items) == 0 {
+		return "", nil, errors.New("corm: delete without where clause is not allowed, use AllowEmptyWhere() to override")
 	}
 
-	return buf.String(), args, nil
+	if b.limit != nil {
+		if *b.limit < 0 {
+			return "", nil, errors.New("corm: invalid limit")
+		}
+		if b.d.Name() != "mysql" {
+			return "", nil, errors.New("corm: delete limit is only supported by mysql dialect")
+		}
+		buf.WriteString(" LIMIT ")
+		buf.WriteString(ab.add(*b.limit))
+	}
+
+	return buf.String(), ab.args, nil
+}
+
+// Limit adds a LIMIT clause.
+// Note: LIMIT on DELETE is not standard SQL and may not be supported by all dialects.
+func (b *DeleteBuilder) Limit(limit int) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.limit = &limit
+	return b
 }
 
 func (b *DeleteBuilder) Exec(ctx context.Context) (sql.Result, error) {
+	if b.exec == nil {
+		return nil, errors.New("corm: missing Executor for delete")
+	}
 	sqlStr, args, err := b.SQL()
 	if err != nil {
 		return nil, err

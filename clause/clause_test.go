@@ -61,7 +61,7 @@ func TestIn(t *testing.T) {
 				t.Errorf("In().Args length = %v, want %v", len(got.Args), len(tt.wantArgs))
 			}
 			// DeepEqual check for args content
-			// Note: reflect.DeepEqual might fail on int vs int64 type mismatches if not careful, 
+			// Note: reflect.DeepEqual might fail on int vs int64 type mismatches if not careful,
 			// but here we expect exact types from input.
 			// Actually In() flattens using reflect, types should be preserved.
 		})

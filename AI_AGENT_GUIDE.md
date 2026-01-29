@@ -11,8 +11,19 @@
 - 初始化：`engine.Open(driver, dsn, engine.WithConfig(...))`
 - 查询：`e.Select(...).From(...).Where("x = ?", v).Limit(...).Offset(...).All(ctx, &dest)`
 - IN：`WhereIn("id", []int{1,2,3})` 或 `WhereExpr(clause.In("id", ids))`
-- 插入结构体：`e.InsertInto("").Model(&obj).Exec(ctx)`（会从 `TableName()` 推导表名）
-- 更新结构体：`e.Update("").SetStruct(&obj).Where("id = ?", obj.ID).Exec(ctx)`
+- 插入结构体：`e.Insert("").Model(&obj).Exec(ctx)`（会从 `TableName()` 推导表名）
+- 插入 map（单行）：`e.Insert("users").Map(map[string]any{...}).Exec(ctx)`
+- 批量插入（结构体切片）：`e.Insert("").Models([]User{...}).Exec(ctx)`
+- 批量插入（map 切片）：`e.Insert("users").Columns("a","b").Maps([]map[string]any{...}).Exec(ctx)`
+- 插入并返回 ID：`id, err := e.Insert("").Model(&obj).ExecAndReturnID(ctx, "id")`
+- 更新结构体：`e.Update("").Model(&obj).Where("id = ?", obj.ID).Exec(ctx)`
+- 更新 map（单行）：`e.Update("users").Map(map[string]any{...}).Where("id = ?", 1).Exec(ctx)`
+- 批量更新（结构体切片）：`e.Update("").Models([]User{...}).Exec(ctx)`（单条 SQL，CASE WHEN）
+- 删除：`e.Delete("users").Where("id = ?", 1).Exec(ctx)`（默认禁止无 WHERE 全表删除）
+- 业务侧统一封装（推荐）：`qb := e.Builder()` 或 `qb := tx.Builder()`（预绑定 dialect + executor，便于在你的 DAO/Repository 层复用）
+- 仅构建 SQL（不执行）：`qb := builder.MySQL(); sql, args, err := qb.Update("users").Set("x", 1).Where("id = ?", 1).SQL()`（`Exec/Query` 需要 Executor）
+- 仅构建 SQL（driver 运行时确定）：`qb := builder.Dialect(driverName)` 或 `qb := builder.MustDialect(driverName)`
+- 绑定 executor + dialect（driver 运行时确定）：`qb := builder.For(driverName, exec)` 或 `qb := builder.MustFor(driverName, exec)`
 - 事务：`e.Transaction(ctx, func(tx *engine.Tx) error { ... })`
 - 嵌套事务（Savepoint）：`tx.Transaction(ctx, func(subTx *engine.Tx) error { ... })`
 
@@ -24,7 +35,7 @@
 - `builder/`：链式 Query Builder（SELECT/INSERT/UPDATE/DELETE）与 SQL 生成
 - `clause/`：可复用表达式（`And/Or/In/Raw/Not/IsNull/IsNotNull`，以及聚合函数辅助）
 - `schema/`：结构体字段解析（`db` tag、`TableName()`、字段策略）
-- `exec/`：结果集扫描（ScanAll/ScanOne）
+- `scan/`：结果集扫描（ScanAll/ScanOne）
 - `dialect/`：方言（MySQL/PostgreSQL 占位符与标识符引用）
 
 ---
@@ -45,7 +56,7 @@ q := e.Select().From("users").Where("id = ?", userID)
 q := e.Select().From("users").Where("id = " + userInput)
 ```
 
-`Where/Join/Having/OrderBy` 的字符串参数都应被视为“需要人工确认的危险入口”。除非值来自受信任的常量/白名单，否则必须使用占位符参数绑定。
+`Where/JoinRaw/Having/OrderByRaw/SuffixRaw` 以及 `clause.Raw(...)` 都应被视为“需要人工确认的危险入口”。除非值来自受信任的常量/白名单，否则必须使用占位符参数绑定。
 
 ### 3.2 不要把用户输入当作标识符（表名/列名）
 
@@ -54,17 +65,29 @@ q := e.Select().From("users").Where("id = " + userInput)
 - 结构体 `TableName()`（推荐）
 - 结构体 `db:"col"` tag（推荐）
 
-推荐优先使用更“安全默认”的接口：`FromIdent/WhereEq/OrderByIdent`（只接受简单标识符或 dotted ident），而不是把用户输入直接传给 `From/Where/OrderBy`。
+推荐优先使用更“安全默认”的接口：`From/FromAs/OrderBy/WhereEq/WhereIn`（会校验并引用标识符），而不是把用户输入直接拼进 `Where/JoinRaw/OrderByRaw`。
 
 ### 3.3 PostgreSQL 的占位符规则
 
 `corm` 在 PostgreSQL 下会输出 `$1,$2,...`；MySQL 下使用 `?`。
-库内部以 `?` 作为统一占位符，并在最终生成 SQL 时统一重写，因此 **子查询/UNION 等组合场景也能保持编号连续**。
+库内部在构建 SQL 时统一维护参数序号，因此 **子查询/UNION 等组合场景也能保持编号连续**。
+
+注意：在 PostgreSQL 下，如果你使用 `Where/Join/Having/OrderByRaw` 等“字符串 SQL + args”接口，SQL 字符串里应使用 `?` 作为占位符；但请避免在同一段参数化 SQL 中使用 JSONB 的 `?/?|/?&` 操作符（会与占位符冲突）。如需该能力，优先使用 `jsonb_exists/jsonb_exists_any/jsonb_exists_all` 等函数写法。
 
 ### 3.4 日志与敏感信息
 
 `Config.LogArgs` 会把参数值写入日志，可能泄露密码/Token/PII。生产环境建议关闭，必要时仅在短时间排障窗口开启，并确保日志系统具备脱敏与访问控制。
-如确需输出参数，优先配置 `Config.ArgFormatter`，对 `string/[]byte` 做截断或脱敏。
+默认参数格式化对 `string` 做全量脱敏，并默认不展开 `error/fmt.Stringer` 内容；如自定义 `Config.ArgFormatter`，也必须保持脱敏策略（避免明文输出敏感字段）。
+可通过 `Config.MaxLogSQLLen/MaxLogArgsItems/MaxLogArgsLen` 控制日志体积，避免超长 SQL/参数导致日志放大。
+
+### 3.5 错误处理最佳实践
+
+`corm` 内部返回的 error 可能被 `fmt.Errorf` 包装。
+推荐使用 `errors.Is(err, sql.ErrNoRows)` 来判断是否未找到记录，而不是字符串匹配。
+对于事务中的错误，务必直接返回 error 以触发 rollback，不要吞掉错误。
+
+补充：
+- `MustDialect/MustFor/MustGet` 会在 dialect 不支持时直接 panic；仅建议用于启动期/脚本场景，不建议在长期运行服务的请求路径中使用。
 
 ---
 
@@ -83,98 +106,63 @@ err := e.Select("id", "name").
     All(ctx, &users)
 ```
 
+说明：
+- `Select("col", "t.col", "*")` 的字符串列名仅允许“标识符/通配符”形式（会安全引用）；如需 `COUNT(*) AS cnt` 等表达式列，请使用 `SelectExpr(clause.Raw(...))` 显式声明。
+
 常用：
 - `From(table)`
-- `FromIdent(table)`（仅允许标识符）
 - `FromAs(table, alias)`（安全别名）
+- `SelectExpr(exprs...)`（选择表达式列；例如聚合/别名）
 - `Where(sql, args...)`
-- `WhereRaw(sql, args...)`
 - `WhereEq(column, value)`（仅允许标识符）
 - `WhereExpr(clause.Expr)`
-- `WhereIn(column, values...)`
-- `WhereInIdent(column, values...)`（仅允许标识符；推荐用于不可信输入）
-- `Join(joinSQL)`（需要自行写 `LEFT JOIN ... ON ...` 片段；不要拼接用户输入）
-- `JoinRaw(joinSQL)`
-- `JoinExpr(joinType, table, onExpr)`（支持参数绑定）
-- `LeftJoinOn/RightJoinOn/InnerJoinOn(table, onExpr)`（推荐）
-- `LeftJoinAs/RightJoinAs/InnerJoinAs/FullJoinAs(table, alias, onExpr)`（安全别名 + 参数绑定）
+- `WhereIn(column, values...)`（仅允许标识符；会校验并引用）
+- `JoinRaw(joinSQL, args...)`（原生 JOIN 片段；不要拼接用户输入）
+- `Join/LeftJoin/RightJoin/InnerJoin/FullJoin(table, onExpr)`（结构化 JOIN + 参数绑定）
+- `JoinAs/LeftJoinAs/RightJoinAs/InnerJoinAs/FullJoinAs(table, alias, onExpr)`（安全别名 + 参数绑定）
+- `JoinSelectAs/LeftJoinSelectAs/... (sub, alias, onExpr)`（JOIN 子查询 + 参数绑定）
 - `GroupBy(cols...)`
 - `Having(sql, args...)`
-- `HavingRaw(sql, args...)`
 - `OrderBy(column, "ASC|DESC")` / `OrderByAsc` / `OrderByDesc`
-- `OrderByRaw(raw)` / `OrderByIdent(column, dir)`
+- `OrderByRaw(raw)`
 - `Limit(limit)` / `Offset(offset)` / `LimitOffset(limit, offset)`
 
+#### JOIN 示例
+
+```go
+// Correct: Structured API with parameter binding (Recommended)
+e.Select("u.name").
+    FromAs("users", "u").
+    LeftJoinAs("orders", "o", clause.Raw("u.id = o.user_id")). // raw condition
+    All(ctx, &results)
+
+// Correct: Using raw JOIN string (Caller must ensure safety)
+e.Select("u.name").
+    FromAs("users", "u").
+    JoinRaw("LEFT JOIN orders o ON u.id = o.user_id").
+    All(ctx, &results)
+```
+
 ### 4.2 INSERT
-
-#### 结构体插入（推荐）
-
-```go
-type User struct {
-    ID   int    `db:"id,pk"`
-    Name string `db:"name"`
-}
-func (User) TableName() string { return "users" }
-
-u := User{Name: "alice"}
-_, err := e.InsertInto("").Model(&u).Exec(ctx)
-```
-
-说明：
-- `InsertInto("")` 允许空表名，`Model` 会从 schema 推导 `TableName()`。
-- 结构体字段 tag：
-  - `db:"col"` 映射列名
-  - `db:"-,..."` 忽略字段
-  - `pk` 主键
-  - `readonly` 只读字段（默认不写入）
-  - `omitempty` 零值跳过（除非开启 IncludeZero）
-
-字段策略开关（需要时才用）：
-- `IncludePrimaryKey()`
-- `IncludeAuto()`
-- `IncludeReadonly()`
-- `IncludeZero()`
-
-#### Columns/Values（手工）
-
-```go
-_, err := e.InsertInto("users").
-    Columns("name", "age").
-    Values("bob", 20).
-    Exec(ctx)
-```
+- Use `Insert(table)`.
+- `Columns(...)` + `Values(...)` for standard inserts.
+- `Map(map[string]any)` for map-based inserts.
+- For high-throughput map inserts with predefined Columns(...), prefer `MapLowerKeys/MapsLowerKeys` when keys are already normalized to lower-case.
+- `Model(interface{})` for struct-based inserts.
+- `ExecAndReturnID(ctx, pkName)` for Postgres returning ID.
+- `SuffixRaw(sql, args...)` for database-specific suffix (e.g. upsert).
 
 ### 4.3 UPDATE
-
-#### 结构体更新（推荐）
-
-```go
-u := User{ID: 1, Name: "alice"}
-_, err := e.Update("").SetStruct(&u).
-    Where("id = ?", u.ID).
-    Exec(ctx)
-```
-
-说明：
-- `Update("")` 允许空表名，`SetStruct` 会从 schema 推导 `TableName()`。
-- 结构体字段策略同 INSERT（readonly/omitempty 等）。
-
-#### 手工 SET
-
-```go
-_, err := e.Update("users").
-    Set("name", "alice").
-    Where("id = ?", 1).
-    Exec(ctx)
-```
+- Use `Update(table)`.
+- `Set(col, val)` or `Map(map[string]any)`.
+- `Model(interface{})` with `IncludeZero()`, `IncludePrimaryKey()` options.
+- `Limit(int)`: Adds a LIMIT clause. **Warning**: Only supported by MySQL dialect. Postgres does not support LIMIT on UPDATE/DELETE; using it will return an error.
+- Default requires WHERE; use `AllowEmptyWhere()` only when you really want to update all rows.
 
 ### 4.4 DELETE
-
-```go
-_, err := e.DeleteFrom("users").
-    Where("id = ?", 1).
-    Exec(ctx)
-```
+- Use `Delete(table)`.
+- `Limit(int)`: Adds a LIMIT clause. **Warning**: Only supported by MySQL dialect. Postgres does not support LIMIT on DELETE.
+- Default requires WHERE; use `AllowEmptyWhere()` only when you really want to delete all rows.
 
 ---
 
@@ -182,7 +170,7 @@ _, err := e.DeleteFrom("users").
 
 ```go
 err := e.Transaction(ctx, func(tx *engine.Tx) error {
-    if _, err := tx.InsertInto("users").Columns("name").Values("a").Exec(ctx); err != nil {
+    if _, err := tx.Insert("users").Columns("name").Values("a").Exec(ctx); err != nil {
         return err
     }
     if _, err := tx.Update("users").Set("name", "b").Where("id = ?", 1).Exec(ctx); err != nil {
@@ -201,12 +189,16 @@ err := e.Transaction(ctx, func(tx *engine.Tx) error {
 ## 6. 扫描（ScanAll/ScanOne）能力边界
 
 `All/One` 支持把结果扫描到：
-- `[]Struct` / `[]*Struct`
-- `[]map[string]T`（key 必须是 string）
+- `[]Struct` / `[]*Struct`（推荐，性能最佳，支持预计算缓存）
+- `[]map[string]any`（便利，但内存分配略高）
 - `Struct` / `*Struct`
-- `map[string]T` / `*map[string]T`
+- `map[string]any` / `*map[string]any`
 
 列名匹配规则：按列名（忽略引用符与表前缀）匹配到 `db:"col"`（或默认 snake_case）。
+
+**Strict Mode (严格模式)**:
+- `scan.ScanOneStrict(rows, dest)` / `scan.ScanAllStrict(rows, dest)`
+- 当查询结果中存在重复列（归一化后同名，如 `u.id` 和 `o.id`）时，严格模式会直接报错，防止静默覆盖导致的数据错误。
 
 ---
 
@@ -243,7 +235,7 @@ func (User) TableName() string { return "users" }
 
 func CreateUser(ctx context.Context, e *engine.Engine, name string) error {
     u := User{Name: name}
-    _, err := e.InsertInto("").Model(&u).Exec(ctx)
+    _, err := e.Insert("").Model(&u).Exec(ctx)
     return err
 }
 ```

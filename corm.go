@@ -19,4 +19,3 @@ func Open(driverName, dsn string, opts ...Option) (*DB, error) {
 func WithDB(db *sql.DB, driverName string, opts ...Option) (*DB, error) {
 	return engine.WithDB(db, driverName, opts...)
 }
-

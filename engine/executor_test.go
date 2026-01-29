@@ -7,7 +7,7 @@ import (
 
 func TestFormatArgsDefaultRedaction(t *testing.T) {
 	s := strings.Repeat("a", 33)
-	out := formatArgs([]any{s, []byte{1, 2, 3}}, nil)
+	out := formatArgs([]any{s, []byte{1, 2, 3}}, nil, 0, 0)
 	if !strings.Contains(out, "redacted(len=33)") {
 		t.Fatalf("unexpected output: %s", out)
 	}
@@ -17,9 +17,8 @@ func TestFormatArgsDefaultRedaction(t *testing.T) {
 }
 
 func TestFormatArgsCustomFormatter(t *testing.T) {
-	out := formatArgs([]any{1, "x"}, func(any) string { return "X" })
+	out := formatArgs([]any{1, "x"}, func(any) string { return "X" }, 0, 0)
 	if out != "[X, X]" {
 		t.Fatalf("unexpected output: %s", out)
 	}
 }
-

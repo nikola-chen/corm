@@ -26,7 +26,8 @@ func Or(exprs ...Expr) Expr {
 	return join("OR", exprs...)
 }
 
-// Eq creates an equality expression: "column = value"
+// Eq creates an equality expression: "column = ?".
+// The column must be a trusted identifier (do not pass user input).
 func Eq(column string, value any) Expr {
 	return Expr{SQL: column + " = ?", Args: []any{value}}
 }
@@ -61,9 +62,102 @@ func Like(column string, value any) Expr {
 	return Expr{SQL: column + " LIKE ?", Args: []any{value}}
 }
 
-// In creates an IN expression: "column IN (?, ?, ...)"
+// In creates an IN expression: "column IN (?, ?, ...)".
+// The column must be a trusted identifier (do not pass user input).
 // It automatically flattens slice arguments.
 func In(column string, values ...any) Expr {
+	if len(values) == 0 {
+		return Expr{SQL: "1=0"}
+	}
+
+	// Fast path for single slice argument
+	if len(values) == 1 {
+		switch s := values[0].(type) {
+		case []any:
+			if len(s) == 0 {
+				return Expr{SQL: "1=0"}
+			}
+			flattened := make([]any, len(s))
+			copy(flattened, s)
+			return buildIn(column, flattened)
+		case []string:
+			if len(s) == 0 {
+				return Expr{SQL: "1=0"}
+			}
+			flattened := make([]any, len(s))
+			for i := range s {
+				flattened[i] = s[i]
+			}
+			return buildIn(column, flattened)
+		case []int:
+			if len(s) == 0 {
+				return Expr{SQL: "1=0"}
+			}
+			flattened := make([]any, len(s))
+			for i := range s {
+				flattened[i] = s[i]
+			}
+			return buildIn(column, flattened)
+		case []int64:
+			if len(s) == 0 {
+				return Expr{SQL: "1=0"}
+			}
+			flattened := make([]any, len(s))
+			for i := range s {
+				flattened[i] = s[i]
+			}
+			return buildIn(column, flattened)
+		case []uint64:
+			if len(s) == 0 {
+				return Expr{SQL: "1=0"}
+			}
+			flattened := make([]any, len(s))
+			for i := range s {
+				flattened[i] = s[i]
+			}
+			return buildIn(column, flattened)
+		case []int32:
+			if len(s) == 0 {
+				return Expr{SQL: "1=0"}
+			}
+			flattened := make([]any, len(s))
+			for i := range s {
+				flattened[i] = s[i]
+			}
+			return buildIn(column, flattened)
+		case []uint:
+			if len(s) == 0 {
+				return Expr{SQL: "1=0"}
+			}
+			flattened := make([]any, len(s))
+			for i := range s {
+				flattened[i] = s[i]
+			}
+			return buildIn(column, flattened)
+		case []byte:
+		default:
+			rv := reflect.ValueOf(values[0])
+			if rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() != reflect.Uint8 {
+				n := rv.Len()
+				if n == 0 {
+					return Expr{SQL: "1=0"}
+				}
+
+				// Optimization: if it's a slice of simple types, we can iterate without reflection for each element?
+				// But we are in 'default' case, so we don't know the type.
+				// However, rv.Index(i).Interface() allocates.
+				// We can try to handle more common types here if needed (e.g. []uint, []int32).
+				// For now, the reflect path is acceptable for obscure types.
+
+				flattened := make([]any, n)
+				for i := 0; i < n; i++ {
+					flattened[i] = rv.Index(i).Interface()
+				}
+				return buildIn(column, flattened)
+			}
+		}
+	}
+
 	flattened := make([]any, 0, len(values))
 	for _, v := range values {
 		rv := reflect.ValueOf(v)
@@ -77,18 +171,27 @@ func In(column string, values ...any) Expr {
 	}
 
 	if len(flattened) == 0 {
-		// "IN ()" is usually invalid or false. 
-		// We return "1=0" to ensure it matches nothing.
 		return Expr{SQL: "1=0"}
 	}
 
-	placeholders := make([]string, len(flattened))
-	for i := range placeholders {
-		placeholders[i] = "?"
-	}
+	return buildIn(column, flattened)
+}
 
-	sql := column + " IN (" + strings.Join(placeholders, ", ") + ")"
-	return Expr{SQL: sql, Args: flattened}
+func buildIn(column string, args []any) Expr {
+	var b strings.Builder
+	// approximate size: column + " IN (" + (2*n) + ")"
+	b.Grow(len(column) + 6 + len(args)*2)
+
+	b.WriteString(column)
+	b.WriteString(" IN (")
+	for i := range args {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("?")
+	}
+	b.WriteString(")")
+	return Expr{SQL: b.String(), Args: args}
 }
 
 // Not negates an expression: "NOT (expr)"
@@ -156,8 +259,26 @@ func Min(column string) string {
 }
 
 func join(op string, exprs ...Expr) Expr {
-	var parts []string
-	args := make([]any, 0)
+	if len(exprs) == 0 {
+		return Expr{}
+	}
+
+	partsCap := 0
+	argsCap := 0
+	for _, e := range exprs {
+		if strings.TrimSpace(e.SQL) == "" {
+			continue
+		}
+		partsCap++
+		argsCap += len(e.Args)
+	}
+
+	if partsCap == 0 {
+		return Expr{}
+	}
+
+	parts := make([]string, 0, partsCap)
+	args := make([]any, 0, argsCap)
 	for _, e := range exprs {
 		if strings.TrimSpace(e.SQL) == "" {
 			continue
@@ -165,9 +286,5 @@ func join(op string, exprs ...Expr) Expr {
 		parts = append(parts, "("+e.SQL+")")
 		args = append(args, e.Args...)
 	}
-	if len(parts) == 0 {
-		return Expr{}
-	}
 	return Expr{SQL: strings.Join(parts, " "+op+" "), Args: args}
 }
-

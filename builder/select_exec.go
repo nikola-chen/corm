@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/nikola-chen/corm/exec"
+	"github.com/nikola-chen/corm/scan"
 )
 
 func (b *SelectBuilder) All(ctx context.Context, dest any) error {
@@ -12,7 +12,11 @@ func (b *SelectBuilder) All(ctx context.Context, dest any) error {
 	if err != nil {
 		return err
 	}
-	return exec.ScanAll(rows, dest)
+	hint := 0
+	if b.limit != nil && *b.limit > 0 {
+		hint = *b.limit
+	}
+	return scan.ScanAllCap(rows, dest, hint)
 }
 
 func (b *SelectBuilder) One(ctx context.Context, dest any) error {
@@ -20,7 +24,7 @@ func (b *SelectBuilder) One(ctx context.Context, dest any) error {
 	if err != nil {
 		return err
 	}
-	return exec.ScanOne(rows, dest)
+	return scan.ScanOne(rows, dest)
 }
 
 func (b *SelectBuilder) Scalar(ctx context.Context, dest any) error {
