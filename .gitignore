@@ -1,0 +1,34 @@
+# macOS hidden directories
+.xyz
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# macOS resource forks
+._*
+
+# macOS trash
+.Trashes
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+
+# Dependency directories
+vendor/
+
+# Build outputs
+dist/
+build/

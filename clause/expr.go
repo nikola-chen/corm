@@ -247,32 +247,32 @@ func Some(column, operator, subquery string) Expr {
 
 // Count creates a COUNT expression.
 // The column must be a trusted identifier (do not pass user input).
-func Count(column string) string {
-	return "COUNT(" + column + ")"
+func Count(column string) Expr {
+	return Expr{SQL: "COUNT(" + column + ")"}
 }
 
 // Sum creates a SUM expression.
 // The column must be a trusted identifier (do not pass user input).
-func Sum(column string) string {
-	return "SUM(" + column + ")"
+func Sum(column string) Expr {
+	return Expr{SQL: "SUM(" + column + ")"}
 }
 
 // Avg creates an AVG expression.
 // The column must be a trusted identifier (do not pass user input).
-func Avg(column string) string {
-	return "AVG(" + column + ")"
+func Avg(column string) Expr {
+	return Expr{SQL: "AVG(" + column + ")"}
 }
 
 // Max creates a MAX expression.
 // The column must be a trusted identifier (do not pass user input).
-func Max(column string) string {
-	return "MAX(" + column + ")"
+func Max(column string) Expr {
+	return Expr{SQL: "MAX(" + column + ")"}
 }
 
 // Min creates a MIN expression.
 // The column must be a trusted identifier (do not pass user input).
-func Min(column string) string {
-	return "MIN(" + column + ")"
+func Min(column string) Expr {
+	return Expr{SQL: "MIN(" + column + ")"}
 }
 
 func join(op string, exprs ...Expr) Expr {

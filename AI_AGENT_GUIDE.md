@@ -107,7 +107,23 @@ err := e.Select("id", "name").
 ```
 
 说明：
-- `Select("col", "t.col", "*")` 的字符串列名仅允许“标识符/通配符”形式（会安全引用）；如需 `COUNT(*) AS cnt` 等表达式列，请使用 `SelectExpr(clause.Raw(...))` 显式声明。
+- `Select("col", "t.col", "*")` 的字符串列名仅允许"标识符/通配符"形式（会安全引用）；如需 `COUNT(*) AS cnt` 等表达式列，请使用 `SelectExpr(clause.Alias(clause.Count("id"), "cnt"))` 等显式声明。
+
+聚合表达式示例：
+```go
+type Agg struct {
+    Cnt    int     `db:"cnt"`
+    AvgAge float64 `db:"avg_age"`
+}
+var a Agg
+err := e.Select().
+    SelectExpr(
+        clause.Alias(clause.Count("id"), "cnt"),
+        clause.Alias(clause.Avg("age"), "avg_age"),
+    ).
+    From("users").
+    One(ctx, &a)
+```
 
 常用：
 - `From(table)`

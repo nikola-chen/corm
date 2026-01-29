@@ -567,12 +567,12 @@ type Agg struct {
     AvgAge float64 `db:"avg_age"`
 }
 var a Agg
-	err := e.Select().
-		SelectExpr(
-			clause.Raw(clause.Alias(clause.Count("id"), "cnt")),
-			clause.Raw(clause.Alias(clause.Avg("age"), "avg_age")),
-		).
-		From("users").
+err := e.Select().
+    SelectExpr(
+        clause.Alias(clause.Count("id"), "cnt"),
+        clause.Alias(clause.Avg("age"), "avg_age"),
+    ).
+    From("users").
     One(ctx, &a)
 ```
 

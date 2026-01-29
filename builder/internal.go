@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/nikola-chen/corm/dialect"
 )
@@ -38,6 +39,44 @@ func isSimpleIdent(s string) bool {
 	if s == "" {
 		return false
 	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if i == 0 {
+			if c != '_' && !isASCIILetter(c) {
+				// First character must be letter or underscore
+				if c >= 0x80 {
+					// Non-ASCII: use unicode for first char
+					r, _ := utf8.DecodeRuneInString(s)
+					return r != utf8.RuneError && unicode.IsLetter(r)
+				}
+				return false
+			}
+			continue
+		}
+		if c != '_' && !isASCIILetter(c) && !isASCIIDigit(c) {
+			// Non-ASCII in middle: use unicode
+			if c >= 0x80 {
+				return isSimpleIdentUnicode(s)
+			}
+			return false
+		}
+	}
+	return true
+}
+
+// isASCIILetter reports whether c is an ASCII letter.
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// isASCIIDigit reports whether c is an ASCII digit.
+func isASCIIDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+// isSimpleIdentUnicode checks if s is a simple identifier using unicode.
+// Called as fallback when non-ASCII characters are detected.
+func isSimpleIdentUnicode(s string) bool {
 	for i, r := range s {
 		if i == 0 {
 			if r != '_' && !unicode.IsLetter(r) {

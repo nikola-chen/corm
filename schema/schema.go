@@ -285,6 +285,55 @@ func toSnake(s string) string {
 	if s == "" {
 		return ""
 	}
+
+	// Fast path: check if all ASCII
+	allASCII := true
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			allASCII = false
+			break
+		}
+	}
+
+	if allASCII {
+		return toSnakeASCII(s)
+	}
+	return toSnakeUnicode(s)
+}
+
+// toSnakeASCII converts an ASCII string to snake_case.
+func toSnakeASCII(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+
+	prevLower := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			nextLower := i+1 < len(s) && s[i+1] >= 'a' && s[i+1] <= 'z'
+			if i > 0 && (prevLower || nextLower) {
+				b.WriteByte('_')
+			}
+			b.WriteByte(c + ('a' - 'A'))
+			prevLower = false
+			continue
+		}
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			prevLower = c >= 'a' && c <= 'z'
+			b.WriteByte(c)
+			continue
+		}
+		if c == '_' {
+			b.WriteByte('_')
+			prevLower = false
+			continue
+		}
+	}
+	return b.String()
+}
+
+// toSnakeUnicode converts a Unicode string to snake_case.
+func toSnakeUnicode(s string) string {
 	runes := []rune(s)
 	var b strings.Builder
 	b.Grow(len(runes) + 8)

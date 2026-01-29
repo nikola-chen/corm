@@ -132,8 +132,8 @@ func TestUnion(t *testing.T) {
 func TestAggregates(t *testing.T) {
 	q := pgQB().Select().
 		SelectExpr(
-			clause.Raw(clause.Count("id")),
-			clause.Raw(clause.Max("age")),
+			clause.Count("id"),
+			clause.Max("age"),
 		).
 		From("users")
 

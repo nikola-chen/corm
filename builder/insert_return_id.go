@@ -67,10 +67,10 @@ func (b *InsertBuilder) ExecAndReturnIDInto(ctx context.Context, idColumn string
 	if err != nil {
 		return err
 	}
-	return setInt64(dest, id)
+	return assignInt64(dest, id)
 }
 
-func setInt64(dest any, v int64) error {
+func assignInt64(dest any, v int64) error {
 	switch p := dest.(type) {
 	case *int:
 		*p = int(v)

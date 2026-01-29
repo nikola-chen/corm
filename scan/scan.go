@@ -70,26 +70,32 @@ func colsKey(cols []string) string {
 			c = c[idx+1:]
 		}
 		// Fast path: ASCII-only lowercasing avoids an extra allocation from strings.ToLower.
-		nonASCII := false
-		for i := 0; i < len(c); i++ {
-			if c[i] >= 0x80 {
-				nonASCII = true
-				break
-			}
-		}
-		if nonASCII {
-			b.WriteString(strings.ToLower(c))
-			continue
-		}
-		for i := 0; i < len(c); i++ {
-			ch := c[i]
-			if ch >= 'A' && ch <= 'Z' {
-				ch += 'a' - 'A'
-			}
-			b.WriteByte(ch)
-		}
+		writeLowerASCII(&b, c)
 	}
 	return b.String()
+}
+
+// writeLowerASCII writes the lowercase version of s to b.
+// It handles ASCII characters directly and falls back to strings.ToLower for non-ASCII.
+func writeLowerASCII(b *strings.Builder, s string) {
+	nonASCII := false
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			nonASCII = true
+			break
+		}
+	}
+	if nonASCII {
+		b.WriteString(strings.ToLower(s))
+		return
+	}
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= 'A' && ch <= 'Z' {
+			ch += 'a' - 'A'
+		}
+		b.WriteByte(ch)
+	}
 }
 
 func structPlan(s *schema.Schema, cols []string) [][]int {
