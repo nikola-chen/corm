@@ -237,3 +237,12 @@ func normalizeSubqueryOp(op string) (string, bool) {
 		return "", false
 	}
 }
+
+func normalizeColumn(c string) string {
+	c = strings.TrimSpace(c)
+	c = strings.Trim(c, "`\"")
+	if i := strings.LastIndexByte(c, '.'); i >= 0 {
+		c = c[i+1:]
+	}
+	return strings.ToLower(c)
+}

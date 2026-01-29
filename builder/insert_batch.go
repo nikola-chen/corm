@@ -123,10 +123,5 @@ func (b *InsertBuilder) insertFieldsForSchema(s *schema.Schema) ([]*schema.Field
 }
 
 func normalizeInsertColumnKey(c string) string {
-	c = strings.TrimSpace(c)
-	c = strings.Trim(c, "`\"")
-	if i := strings.LastIndexByte(c, '.'); i >= 0 {
-		c = c[i+1:]
-	}
-	return strings.ToLower(c)
+	return normalizeColumn(c)
 }

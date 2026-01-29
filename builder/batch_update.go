@@ -155,8 +155,8 @@ func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 		// so we just proceed to call it.
 	}
 
-	if b.keyField == nil || b.keyField != nil && normalizeInsertColumnKey(b.keyField.Column) != normalizeInsertColumnKey(b.keyColumn) {
-		b.keyField = s.ByColumn[normalizeInsertColumnKey(b.keyColumn)]
+	if b.keyField == nil || b.keyField != nil && normalizeColumn(b.keyField.Column) != normalizeColumn(b.keyColumn) {
+		b.keyField = s.ByColumn[normalizeColumn(b.keyColumn)]
 	}
 	if b.keyField == nil {
 		b.err = errors.New("corm: invalid batch update key column")
@@ -417,12 +417,12 @@ func (b *batchUpdateBuilder) batchUpdateFieldsForSchema(s *schema.Schema) ([]*sc
 	if len(b.columns) > 0 {
 		fields := make([]*schema.Field, 0, len(b.columns))
 		cols := make([]string, 0, len(b.columns))
-		keyKey := normalizeInsertColumnKey(b.keyColumn)
+		keyKey := normalizeColumn(b.keyColumn)
 		for _, col := range b.columns {
-			if normalizeInsertColumnKey(col) == keyKey {
+			if normalizeColumn(col) == keyKey {
 				return nil, errors.New("corm: batch update cannot include key column")
 			}
-			f := s.ByColumn[normalizeInsertColumnKey(col)]
+			f := s.ByColumn[normalizeColumn(col)]
 			if f == nil {
 				return nil, errors.New("corm: unknown column in batch update: " + col)
 			}
@@ -443,11 +443,11 @@ func (b *batchUpdateBuilder) batchUpdateFieldsForSchema(s *schema.Schema) ([]*sc
 		return fields, nil
 	}
 
-	keyKey := normalizeInsertColumnKey(b.keyColumn)
+	keyKey := normalizeColumn(b.keyColumn)
 	cols := make([]string, 0, len(s.Fields))
 	fields := make([]*schema.Field, 0, len(s.Fields))
 	for _, f := range s.Fields {
-		if normalizeInsertColumnKey(f.Column) == keyKey {
+		if normalizeColumn(f.Column) == keyKey {
 			continue
 		}
 		if f.Readonly && !b.includeReadonly {
