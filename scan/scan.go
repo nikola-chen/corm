@@ -108,12 +108,8 @@ func structPlan(s *schema.Schema, cols []string) [][]int {
 		plan[i] = idx
 	}
 	if structPlanCacheCount.Load() >= maxStructPlanCacheEntries {
-		// Simple eviction strategy: if cache is full, just return the plan without storing it.
-		// In a long-running process with diverse queries, this prevents memory leak.
-		// For better performance, we could implement LRU or random eviction, but for now this is safe.
-		// A potential improvement: if cache is full, clear it entirely (blunt but effective for changing workloads).
-		// However, avoiding the lock contention of clearing is preferred.
-		return plan
+		structPlanCacheCount.Store(0)
+		structPlanCache = sync.Map{}
 	}
 	actual, loaded := structPlanCache.LoadOrStore(key, plan)
 	if !loaded {

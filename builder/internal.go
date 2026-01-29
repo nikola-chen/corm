@@ -92,22 +92,34 @@ func isSimpleIdentUnicode(s string) bool {
 }
 
 func quoteSelectColumnStrict(d dialect.Dialect, ident string) (string, bool) {
+	return quoteIdentWithStar(d, ident, true)
+}
+
+func quoteTableStrict(d dialect.Dialect, ident string) (string, bool) {
+	return quoteIdentStrict(d, ident)
+}
+
+func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
+	return quoteIdentWithStar(d, ident, false)
+}
+
+func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string, bool) {
 	ident = strings.TrimSpace(ident)
 	if ident == "" {
 		return "", false
 	}
-	if ident == "*" {
-		return "*", true
-	}
 	if d == nil {
 		return "", false
 	}
-	// Fast check for invalid chars
+
+	if allowStar && ident == "*" {
+		return "*", true
+	}
+
 	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;\"`") {
 		return "", false
 	}
 
-	// Optimization: avoid strings.Split if no dot present
 	if strings.IndexByte(ident, '.') == -1 {
 		if !isSimpleIdent(ident) {
 			return "", false
@@ -115,15 +127,13 @@ func quoteSelectColumnStrict(d dialect.Dialect, ident string) (string, bool) {
 		return d.QuoteIdent(ident), true
 	}
 
-	// Manual split-and-quote using buffer to avoid slice allocation
 	var buf strings.Builder
-	buf.Grow(len(ident) + 4) // heuristic: 2 quotes per part
+	buf.Grow(len(ident) + 4)
 
 	start := 0
 	for i := 0; i <= len(ident); i++ {
 		if i == len(ident) || ident[i] == '.' {
 			part := ident[start:i]
-			// part = strings.TrimSpace(part) // parts inside dot usually don't have spaces if simpleIdent check passes
 			if part == "" {
 				return "", false
 			}
@@ -132,8 +142,8 @@ func quoteSelectColumnStrict(d dialect.Dialect, ident string) (string, bool) {
 				buf.WriteByte('.')
 			}
 
-			if part == "*" {
-				if i != len(ident) { // * must be last part
+			if allowStar && part == "*" {
+				if i != len(ident) {
 					return "", false
 				}
 				buf.WriteString("*")
@@ -143,51 +153,6 @@ func quoteSelectColumnStrict(d dialect.Dialect, ident string) (string, bool) {
 				}
 				buf.WriteString(d.QuoteIdent(part))
 			}
-			start = i + 1
-		}
-	}
-	return buf.String(), true
-}
-
-func quoteTableStrict(d dialect.Dialect, ident string) (string, bool) {
-	return quoteIdentStrict(d, ident)
-}
-
-func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
-	ident = strings.TrimSpace(ident)
-	if ident == "" {
-		return "", false
-	}
-	if d == nil {
-		return "", false
-	}
-	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;\"`") {
-		return "", false
-	}
-
-	// Optimization: avoid strings.Split if no dot present
-	if strings.IndexByte(ident, '.') == -1 {
-		if !isSimpleIdent(ident) {
-			return "", false
-		}
-		return d.QuoteIdent(ident), true
-	}
-
-	// Manual split-and-quote using buffer
-	var buf strings.Builder
-	buf.Grow(len(ident) + 4)
-
-	start := 0
-	for i := 0; i <= len(ident); i++ {
-		if i == len(ident) || ident[i] == '.' {
-			part := ident[start:i]
-			if !isSimpleIdent(part) {
-				return "", false
-			}
-			if buf.Len() > 0 {
-				buf.WriteByte('.')
-			}
-			buf.WriteString(d.QuoteIdent(part))
 			start = i + 1
 		}
 	}

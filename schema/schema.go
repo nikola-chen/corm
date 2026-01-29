@@ -164,7 +164,7 @@ func ParseType(t reflect.Type) (*Schema, error) {
 				cache.Delete(k)
 				cacheCount.Add(^uint64(0))
 				evicted = true
-				return false
+				return true
 			})
 			if !evicted {
 				cacheCount.Add(^uint64(0))
