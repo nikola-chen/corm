@@ -180,7 +180,8 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 }
 
 // Limit adds a LIMIT clause.
-// Note: LIMIT on DELETE is not standard SQL and may not be supported by all dialects.
+// Note: LIMIT on DELETE is only supported by MySQL. PostgreSQL does not support LIMIT on DELETE.
+// Using Limit with PostgreSQL will return an error at SQL generation time.
 func (b *DeleteBuilder) Limit(limit int) *DeleteBuilder {
 	if b.err != nil {
 		return b

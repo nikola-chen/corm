@@ -139,6 +139,8 @@ func (b *UpdateBuilder) Set(column string, value any) *UpdateBuilder {
 	return b
 }
 
+// Increment increments a column by the specified amount.
+// Example: Increment("count", 1) generates "count = count + ?"
 func (b *UpdateBuilder) Increment(column string, amount any) *UpdateBuilder {
 	if b.err != nil {
 		return b
@@ -156,6 +158,8 @@ func (b *UpdateBuilder) Increment(column string, amount any) *UpdateBuilder {
 	return b
 }
 
+// Decrement decrements a column by the specified amount.
+// Example: Decrement("count", 1) generates "count = count - ?"
 func (b *UpdateBuilder) Decrement(column string, amount any) *UpdateBuilder {
 	if b.err != nil {
 		return b

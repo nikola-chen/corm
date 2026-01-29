@@ -309,7 +309,113 @@ func BatchInsertUsers(ctx context.Context, db *engine.Engine, users []User) erro
 }
 ```
 
-## 10. 版本与兼容性提示
+## 10. 常用设计模式
+
+### 10.1 Repository 模式
+
+```go
+type UserRepository struct {
+    db *engine.Engine
+}
+
+func NewUserRepository(db *engine.Engine) *UserRepository {
+    return &UserRepository{db: db}
+}
+
+func (r *UserRepository) GetByID(ctx context.Context, id int64) (*User, error) {
+    var u User
+    err := r.db.Select().From("users").Where("id = ?", id).One(ctx, &u)
+    if err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            return nil, nil
+        }
+        return nil, err
+    }
+    return &u, nil
+}
+
+func (r *UserRepository) ListByStatus(ctx context.Context, status int, limit int) ([]User, error) {
+    var users []User
+    err := r.db.Select().From("users").
+        Where("status = ?", status).
+        OrderByDesc("created_at").
+        Limit(limit).
+        All(ctx, &users)
+    return users, err
+}
+```
+
+### 10.2 事务中的多表操作
+
+```go
+func Transfer(ctx context.Context, db *engine.Engine, fromID, toID int64, amount float64) error {
+    return db.Transaction(ctx, func(tx *engine.Tx) error {
+        // 扣减转出账户
+        _, err := tx.Update("accounts").
+            Increment("balance", -amount).
+            Where("id = ? AND balance >= ?", fromID, amount).
+            Exec(ctx)
+        if err != nil {
+            return fmt.Errorf("deduct from account: %w", err)
+        }
+        
+        // 增加转入账户
+        _, err = tx.Update("accounts").
+            Increment("balance", amount).
+            Where("id = ?", toID).
+            Exec(ctx)
+        if err != nil {
+            return fmt.Errorf("add to account: %w", err)
+        }
+        
+        // 记录交易日志
+        _, err = tx.Insert("transfers").
+            Map(map[string]any{
+                "from_id": fromID,
+                "to_id":   toID,
+                "amount":  amount,
+                "created_at": time.Now(),
+            }).
+            Exec(ctx)
+        if err != nil {
+            return fmt.Errorf("record transfer: %w", err)
+        }
+        
+        return nil
+    })
+}
+```
+
+### 10.3 乐观锁模式
+
+```go
+type Product struct {
+    ID      int64 `db:"id,pk"`
+    Name    string `db:"name"`
+    Stock   int    `db:"stock"`
+    Version int    `db:"version"`
+}
+
+func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64, quantity int) error {
+    result, err := r.db.Update("products").
+        Set("stock", clause.Raw("stock - ?", quantity)).
+        Increment("version", 1).
+        Where("id = ? AND stock >= ?", productID, quantity).
+        Exec(ctx)
+    if err != nil {
+        return err
+    }
+    
+    rows, _ := result.RowsAffected()
+    if rows == 0 {
+        return errors.New("insufficient stock or product not found")
+    }
+    return nil
+}
+```
+
+## 11. 版本与兼容性提示
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
+- 当前版本：`v1.1.2`
