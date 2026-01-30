@@ -22,6 +22,7 @@ func newArgBuilder(d dialect.Dialect, startIndex int) *argBuilder {
 	return &argBuilder{
 		d:         d,
 		idx:       startIndex,
+		args:      make([]any, 0, 16),
 		usesQmark: d.Placeholder(1) == "?",
 	}
 }

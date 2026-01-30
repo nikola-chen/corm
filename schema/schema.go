@@ -10,6 +10,14 @@ import (
 	"unicode"
 )
 
+// snakeBufferPool is used to reuse buffers for ToSnake conversions.
+var snakeBufferPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 64)
+		return &b
+	},
+}
+
 // TableNamer is an interface for structs to customize their table name.
 type TableNamer interface {
 	TableName() string
@@ -228,7 +236,7 @@ func parseStructFields(s *Schema, t reflect.Type, parentIndex []int) {
 
 		col, opts := parseDBTag(tag)
 		if col == "" {
-			col = toSnake(sf.Name)
+			col = ToSnake(sf.Name)
 		}
 
 		f := &Field{
@@ -278,10 +286,11 @@ func parseDBTag(tag string) (string, map[string]bool) {
 }
 
 func defaultTableName(t reflect.Type) string {
-	return toSnake(t.Name())
+	return ToSnake(t.Name())
 }
 
-func toSnake(s string) string {
+// ToSnake converts a string to snake_case.
+func ToSnake(s string) string {
 	if s == "" {
 		return ""
 	}
@@ -301,10 +310,11 @@ func toSnake(s string) string {
 	return toSnakeUnicode(s)
 }
 
-// toSnakeASCII converts an ASCII string to snake_case.
+// toSnakeASCII converts an ASCII string to snake_case using pooled buffer.
 func toSnakeASCII(s string) string {
-	var b strings.Builder
-	b.Grow(len(s) + 8)
+	// Get buffer from pool
+	bufPtr := snakeBufferPool.Get().(*[]byte)
+	buf := (*bufPtr)[:0]
 
 	prevLower := false
 	for i := 0; i < len(s); i++ {
@@ -312,24 +322,33 @@ func toSnakeASCII(s string) string {
 		if c >= 'A' && c <= 'Z' {
 			nextLower := i+1 < len(s) && s[i+1] >= 'a' && s[i+1] <= 'z'
 			if i > 0 && (prevLower || nextLower) {
-				b.WriteByte('_')
+				buf = append(buf, '_')
 			}
-			b.WriteByte(c + ('a' - 'A'))
+			buf = append(buf, c+('a'-'A'))
 			prevLower = false
 			continue
 		}
 		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
 			prevLower = c >= 'a' && c <= 'z'
-			b.WriteByte(c)
+			buf = append(buf, c)
 			continue
 		}
 		if c == '_' {
-			b.WriteByte('_')
+			buf = append(buf, '_')
 			prevLower = false
 			continue
 		}
 	}
-	return b.String()
+
+	result := string(buf)
+
+	// Return buffer to pool if capacity is reasonable
+	if cap(buf) <= 256 {
+		*bufPtr = buf
+		snakeBufferPool.Put(bufPtr)
+	}
+
+	return result
 }
 
 // toSnakeUnicode converts a Unicode string to snake_case.

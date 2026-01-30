@@ -48,20 +48,27 @@ func putAnySlice(s []any) {
 	anySlicePool.Put(s)
 }
 
+var colsKeyBuilderPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 256)
+		return &b
+	},
+}
+
 func colsKey(cols []string) string {
 	// Build a stable cache key for a column list.
 	// 0x1f is used as a separator byte to minimize collisions and allocations.
-	n := len(cols) // separators
-	for _, c := range cols {
-		n += len(c)
+	if len(cols) == 0 {
+		return ""
 	}
 
-	var b strings.Builder
-	b.Grow(n)
+	// Get buffer from pool
+	bufPtr := colsKeyBuilderPool.Get().(*[]byte)
+	buf := (*bufPtr)[:0]
 
 	for i, c := range cols {
 		if i > 0 {
-			b.WriteByte(0x1f)
+			buf = append(buf, 0x1f)
 		}
 		// normalize inline to avoid allocation
 		c = strings.TrimSpace(c)
@@ -69,10 +76,35 @@ func colsKey(cols []string) string {
 		if idx := strings.LastIndexByte(c, '.'); idx >= 0 {
 			c = c[idx+1:]
 		}
-		// Fast path: ASCII-only lowercasing avoids an extra allocation from strings.ToLower.
-		writeLowerASCII(&b, c)
+		// Fast path: ASCII-only lowercasing
+		buf = appendLowerASCII(buf, c)
 	}
-	return b.String()
+
+	result := string(buf)
+
+	// Return buffer to pool if capacity is reasonable
+	if cap(buf) <= 1024 {
+		*bufPtr = buf
+		colsKeyBuilderPool.Put(bufPtr)
+	}
+
+	return result
+}
+
+// appendLowerASCII appends the lowercase version of s to buf and returns the new slice.
+func appendLowerASCII(buf []byte, s string) []byte {
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= 0x80 {
+			// Non-ASCII: use strings.ToLower
+			return append(buf, strings.ToLower(s)...)
+		}
+		if ch >= 'A' && ch <= 'Z' {
+			ch += 'a' - 'A'
+		}
+		buf = append(buf, ch)
+	}
+	return buf
 }
 
 // writeLowerASCII writes the lowercase version of s to b.

@@ -45,9 +45,11 @@ type SelectBuilder struct {
 
 func newSelect(exec Executor, d dialect.Dialect, columns []string) *SelectBuilder {
 	b := &SelectBuilder{exec: exec, d: d, where: whereBuilder{d: d}}
-	b.columns = make([]selectColumnItem, 0, len(columns))
-	for _, c := range columns {
-		b.columns = append(b.columns, selectColumnItem{kind: selectColumnIdent, ident: c})
+	if len(columns) > 0 {
+		b.columns = make([]selectColumnItem, 0, len(columns))
+		for _, c := range columns {
+			b.columns = append(b.columns, selectColumnItem{kind: selectColumnIdent, ident: c})
+		}
 	}
 	return b
 }
