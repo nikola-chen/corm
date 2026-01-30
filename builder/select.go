@@ -657,7 +657,7 @@ func (b *SelectBuilder) appendSQL(buf *bytes.Buffer, ab *argBuilder) error {
 		wrote := 0
 		for _, h := range b.having {
 			if strings.TrimSpace(h.SQL) == "" {
-				continue
+				return errors.New("corm: empty HAVING expression")
 			}
 			if wrote > 0 {
 				buf.WriteString(" AND ")

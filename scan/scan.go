@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/nikola-chen/corm/internal"
 	"github.com/nikola-chen/corm/schema"
 )
 
@@ -453,11 +454,8 @@ func validateStructColumns(cols []string) error {
 	return nil
 }
 
+// normalizeColumn normalizes a column name for case-insensitive comparison.
+// It delegates to internal.NormalizeColumn for consistency.
 func normalizeColumn(c string) string {
-	c = strings.TrimSpace(c)
-	c = strings.Trim(c, "`\"")
-	if i := strings.LastIndexByte(c, '.'); i >= 0 {
-		c = c[i+1:]
-	}
-	return c
+	return internal.NormalizeColumn(c)
 }

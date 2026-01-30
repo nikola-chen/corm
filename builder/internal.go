@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/nikola-chen/corm/dialect"
+	"github.com/nikola-chen/corm/internal"
 )
 
 var bufferPool = sync.Pool{
@@ -203,11 +204,16 @@ func normalizeSubqueryOp(op string) (string, bool) {
 	}
 }
 
+// NormalizeColumn normalizes a column name by:
+// 1. Trimming whitespace
+// 2. Removing quote characters (` and ")
+// 3. Extracting the column name after the last dot (table.column -> column)
+// 4. Converting to lowercase for case-insensitive comparison
+func NormalizeColumn(c string) string {
+	return internal.NormalizeColumn(c)
+}
+
+// normalizeColumn is an alias for NormalizeColumn for internal use.
 func normalizeColumn(c string) string {
-	c = strings.TrimSpace(c)
-	c = strings.Trim(c, "`\"")
-	if i := strings.LastIndexByte(c, '.'); i >= 0 {
-		c = c[i+1:]
-	}
-	return strings.ToLower(c)
+	return internal.NormalizeColumn(c)
 }

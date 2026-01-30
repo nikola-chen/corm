@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"unicode"
 
 	"github.com/nikola-chen/corm/builder"
 	"github.com/nikola-chen/corm/clause"
@@ -64,7 +65,31 @@ func (t *Tx) Transaction(ctx context.Context, fn func(*Tx) error) (err error) {
 	return fn(t)
 }
 
+// isValidSavepointName validates that name is a valid SQL identifier.
+// Savepoint names must start with a letter or underscore and contain only
+// letters, digits, and underscores. Max length is 128 characters.
+func isValidSavepointName(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	for i, r := range name {
+		if i == 0 {
+			if !unicode.IsLetter(r) && r != '_' {
+				return false
+			}
+		} else {
+			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (t *Tx) rollbackTo(ctx context.Context, name string) error {
+	if !isValidSavepointName(name) {
+		return fmt.Errorf("corm: invalid savepoint name: %s", name)
+	}
 	_, err := t.tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+name)
 	return err
 }
@@ -73,6 +98,9 @@ func (t *Tx) release(ctx context.Context, name string) error {
 	// MSSQL doesn't support RELEASE SAVEPOINT, but others do.
 	// If we wanted to support MSSQL, we would check dialect.
 	// For now, standard RELEASE.
+	if !isValidSavepointName(name) {
+		return fmt.Errorf("corm: invalid savepoint name: %s", name)
+	}
 	_, err := t.tx.ExecContext(ctx, "RELEASE SAVEPOINT "+name)
 	return err
 }

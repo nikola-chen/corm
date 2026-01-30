@@ -619,6 +619,29 @@ err := e.Select("id", "name").
 	All(ctx, &users)
 ```
 
+## Changelog
+
+### v1.1.3
+
+**Security Fixes:**
+- Fixed SAVEPOINT name validation to prevent potential SQL injection
+- Enhanced HAVING clause validation to return explicit errors instead of silently skipping empty expressions
+
+**Performance Optimizations:**
+- Extracted `NormalizeColumn` to `internal` package to eliminate code duplication
+- Optimized memory allocation using `sync.Pool` (ToSnake, colsKey)
+- Pre-allocated argBuilder args slice to reduce expansion overhead
+
+**API Improvements:**
+- Enhanced error messages with clearer debugging guidance
+- Optimized chain API to be closer to SQL primitives
+
+### v1.1.2
+
+- Refactored placeholder rewrite functions to eliminate duplication
+- Unified column normalization functions
+- Added comprehensive documentation and AI Agent Guide
+
 ## License
 
 MIT

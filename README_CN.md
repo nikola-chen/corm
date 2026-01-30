@@ -591,6 +591,29 @@ q1.UnionAll(q2).All(ctx, &ids)
 e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 ```
 
+## 更新日志
+
+### v1.1.3
+
+**安全修复：**
+- 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
+- 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
+
+**性能优化：**
+- 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
+- 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey）
+- 预分配 argBuilder args 切片，减少扩容开销
+
+**API 改进：**
+- 增强错误信息，提供更明确的调试指引
+- 优化链式调用 API，更贴近 SQL 原语
+
+### v1.1.2
+
+- 重构占位符重写函数，消除重复代码
+- 统一列名归一化函数
+- 添加完善的文档和 AI Agent 指南
+
 ## 许可证
 
 MIT

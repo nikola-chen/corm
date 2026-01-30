@@ -418,4 +418,19 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v1.1.2`
+- 当前版本：`v1.1.3`
+
+### v1.1.3 更新内容
+
+**安全修复：**
+- 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
+- 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
+
+**代码优化：**
+- 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
+- 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey）
+- 预分配 argBuilder args 切片，减少扩容开销
+
+**API 改进：**
+- 增强错误信息，提供更明确的调试指引
+- 优化链式调用 API，更贴近 SQL 原语
