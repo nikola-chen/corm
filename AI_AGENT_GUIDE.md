@@ -263,6 +263,47 @@ func CreateUser(ctx context.Context, e *engine.Engine, name string) error {
 }
 ```
 
+### 7.3 使用 QueryFunc 处理大量数据（推荐）
+
+当需要手动处理 `*sql.Rows` 时，使用 `QueryFunc` 可以确保资源被正确释放，避免连接泄漏。
+
+```go
+import "database/sql"
+
+func ProcessLargeDataset(ctx context.Context, e *engine.Engine) error {
+    return e.Select("id", "name", "email").
+        From("users").
+        Where("status = ?", "active").
+        OrderByAsc("id").
+        QueryFunc(ctx, func(rows *sql.Rows) error {
+            for rows.Next() {
+                var id int
+                var name, email string
+                if err := rows.Scan(&id, &name, &email); err != nil {
+                    return err
+                }
+                // 处理每一行数据
+                if err := processUser(id, name, email); err != nil {
+                    return err
+                }
+            }
+            return rows.Err()
+        })
+}
+```
+
+对比：不推荐的 `Query` 方式（容易忘记关闭 rows）
+
+```go
+// ❌ 不推荐：容易忘记 defer rows.Close()
+rows, err := e.Select("*").From("users").Query(ctx)
+if err != nil {
+    return err
+}
+defer rows.Close() // 容易遗漏！
+// ... 处理 rows
+```
+
 ---
 
 ## 8. 最佳实践：Context 超时控制

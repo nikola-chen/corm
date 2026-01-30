@@ -729,3 +729,29 @@ func (b *SelectBuilder) Query(ctx context.Context) (*sql.Rows, error) {
 	}
 	return b.exec.QueryContext(ctx, sqlStr, args...)
 }
+
+// QueryFunc executes the query and calls fn with the resulting rows.
+// It ensures rows are properly closed after fn returns, even if fn panics.
+// This is the recommended way to handle query results to prevent resource leaks.
+//
+// Example:
+//
+//	err := e.Select("id", "name").From("users").Where("age > ?", 18).QueryFunc(ctx, func(rows *sql.Rows) error {
+//		for rows.Next() {
+//			var id int
+//			var name string
+//			if err := rows.Scan(&id, &name); err != nil {
+//				return err
+//			}
+//			// Process id, name
+//		}
+//		return rows.Err()
+//	})
+func (b *SelectBuilder) QueryFunc(ctx context.Context, fn func(*sql.Rows) error) error {
+	rows, err := b.Query(ctx)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	return fn(rows)
+}

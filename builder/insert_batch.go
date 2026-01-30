@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/nikola-chen/corm/internal"
 	"github.com/nikola-chen/corm/schema"
 )
 
@@ -123,5 +124,5 @@ func (b *InsertBuilder) insertFieldsForSchema(s *schema.Schema) ([]*schema.Field
 }
 
 func normalizeInsertColumnKey(c string) string {
-	return normalizeColumn(c)
+	return internal.NormalizeColumn(c)
 }
