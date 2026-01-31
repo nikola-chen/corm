@@ -36,3 +36,6 @@ vendor/
 # Build outputs
 dist/
 build/
+
+# Profiling files
+*.prof
