@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"bytes"
 	"errors"
 	"strings"
 	"sync"
@@ -11,50 +10,55 @@ import (
 	"github.com/nikola-chen/corm/dialect"
 )
 
-var bufferPool = sync.Pool{
+var stringBuilderPool = sync.Pool{
 	New: func() any {
-		return new(bytes.Buffer)
+		b := new(strings.Builder)
+		b.Grow(512)
+		return b
 	},
 }
 
-const maxPooledBufferCap = 64 * 1024
+const maxPooledStringBuilderCap = 64 * 1024
 
-func getBuffer() *bytes.Buffer {
-	buf := bufferPool.Get().(*bytes.Buffer)
+func getBuffer() *strings.Builder {
+	buf := stringBuilderPool.Get().(*strings.Builder)
 	buf.Reset()
+	// Only grow if capacity is too small
+	if buf.Cap() < 512 {
+		buf.Grow(512)
+	}
 	return buf
 }
 
-func putBuffer(buf *bytes.Buffer) {
+func putBuffer(buf *strings.Builder) {
 	if buf == nil {
 		return
 	}
-	if buf.Cap() > maxPooledBufferCap {
+	if buf.Cap() > maxPooledStringBuilderCap {
 		return
 	}
-	bufferPool.Put(buf)
+	stringBuilderPool.Put(buf)
 }
 
 func isSimpleIdent(s string) bool {
-	if s == "" {
+	if len(s) == 0 {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if i == 0 {
-			if c != '_' && !isASCIILetter(c) {
-				// First character must be letter or underscore
-				if c >= 0x80 {
-					// Non-ASCII: use unicode for first char
-					r, _ := utf8.DecodeRuneInString(s)
-					return r != utf8.RuneError && unicode.IsLetter(r)
-				}
-				return false
-			}
-			continue
+	
+	// Check first character
+	c := s[0]
+	if c != '_' && !isASCIILetter(c) {
+		if c >= 0x80 {
+			r, _ := utf8.DecodeRuneInString(s)
+			return r != utf8.RuneError && unicode.IsLetter(r)
 		}
+		return false
+	}
+	
+	// Check remaining characters
+	for i := 1; i < len(s); i++ {
+		c := s[i]
 		if c != '_' && !isASCIILetter(c) && !isASCIIDigit(c) {
-			// Non-ASCII in middle: use unicode
 			if c >= 0x80 {
 				return isSimpleIdentUnicode(s)
 			}
@@ -104,7 +108,17 @@ func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
 }
 
 func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string, bool) {
-	ident = strings.TrimSpace(ident)
+	// Inline TrimSpace to avoid function call overhead
+	start := 0
+	for start < len(ident) && (ident[start] == ' ' || ident[start] == '\t' || ident[start] == '\n' || ident[start] == '\r') {
+		start++
+	}
+	end := len(ident)
+	for end > start && (ident[end-1] == ' ' || ident[end-1] == '\t' || ident[end-1] == '\n' || ident[end-1] == '\r') {
+		end--
+	}
+	ident = ident[start:end]
+	
 	if ident == "" {
 		return "", false
 	}
@@ -116,47 +130,50 @@ func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string
 		return "*", true
 	}
 
-	if strings.ContainsAny(ident, " ()+-/*,%<>=!|&^~?:;\"`") {
-		return "", false
+	// Inline ContainsAny check for better performance
+	for i := 0; i < len(ident); i++ {
+		c := ident[i]
+		if c == ' ' || c == '(' || c == ')' || c == '+' || c == '-' || c == '/' || c == '*' ||
+			c == ',' || c == '%' || c == '<' || c == '>' || c == '=' || c == '!' || c == '|' ||
+			c == '&' || c == '^' || c == '~' || c == '?' || c == ':' || c == ';' || c == '"' || c == '`' {
+			return "", false
+		}
 	}
 
-	if strings.IndexByte(ident, '.') == -1 {
+	dotIdx := strings.IndexByte(ident, '.')
+	if dotIdx == -1 {
 		if !isSimpleIdent(ident) {
 			return "", false
 		}
 		return d.QuoteIdent(ident), true
 	}
 
-	var buf strings.Builder
-	buf.Grow(len(ident) + 4)
+	// Handle table.column format without Split
+	part1 := ident[:dotIdx]
+	part2 := ident[dotIdx+1:]
 
-	start := 0
-	for i := 0; i <= len(ident); i++ {
-		if i == len(ident) || ident[i] == '.' {
-			part := ident[start:i]
-			if part == "" {
-				return "", false
-			}
-
-			if buf.Len() > 0 {
-				buf.WriteByte('.')
-			}
-
-			if allowStar && part == "*" {
-				if i != len(ident) {
-					return "", false
-				}
-				buf.WriteString("*")
-			} else {
-				if !isSimpleIdent(part) {
-					return "", false
-				}
-				buf.WriteString(d.QuoteIdent(part))
-			}
-			start = i + 1
-		}
+	if part1 == "" || part2 == "" {
+		return "", false
 	}
-	return buf.String(), true
+
+	if !isSimpleIdent(part1) {
+		return "", false
+	}
+
+	var result strings.Builder
+	result.Grow(len(ident) + 4)
+	result.WriteString(d.QuoteIdent(part1))
+	result.WriteByte('.')
+
+	if allowStar && part2 == "*" {
+		result.WriteByte('*')
+	} else {
+		if !isSimpleIdent(part2) {
+			return "", false
+		}
+		result.WriteString(d.QuoteIdent(part2))
+	}
+	return result.String(), true
 }
 
 func validateTable(d dialect.Dialect, table string) (string, error) {
@@ -165,6 +182,10 @@ func validateTable(d dialect.Dialect, table string) (string, error) {
 	}
 	if d == nil {
 		return "", errors.New("corm: nil dialect")
+	}
+	// Apply same length limit as SAVEPOINT (128 chars) for consistency
+	if len(table) > 128 {
+		return "", errors.New("corm: table name exceeds maximum length of 128 characters")
 	}
 	qTable, ok := quoteTableStrict(d, table)
 	if !ok {

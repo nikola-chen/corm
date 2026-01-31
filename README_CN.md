@@ -593,6 +593,27 @@ e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 
 ## 更新日志
 
+### v1.2.0
+
+**安全修复：**
+- 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
+- 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
+- 添加 SQL 语句长度限制（1MB），防止超长 SQL 导致数据库拒绝或内存耗尽
+- 添加表名长度限制（128 字符），与 SAVEPOINT 名称限制保持一致
+
+**性能优化：**
+- 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
+- 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey, argBuilder, whereBuilder）
+- 预分配 argBuilder args 切片，减少扩容开销
+- 添加 QuoteIdent 缓存（MySQL/PostgreSQL），减少重复标识符引用的内存分配
+- 添加 ToSnake 缓存，减少重复 snake_case 转换的内存分配
+
+**API 改进：**
+- 增强错误信息，提供更明确的调试指引
+- 优化链式调用 API，更贴近 SQL 原语
+- 添加 `Engine.Stats()` 方法，提供连接池监控功能
+- 修复 SelectBuilder、UpdateBuilder、DeleteBuilder 中的 nil slice bug
+
 ### v1.1.3
 
 **安全修复：**

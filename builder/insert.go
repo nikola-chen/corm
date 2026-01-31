@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -36,8 +35,8 @@ func newInsert(exec Executor, d dialect.Dialect, table string) *InsertBuilder {
 	table = strings.TrimSpace(table)
 	b := &InsertBuilder{exec: exec, d: d, table: table}
 	if table != "" && d != nil {
-		if _, ok := quoteIdentStrict(d, table); !ok {
-			b.err = errors.New("corm: invalid table identifier")
+		if _, err := validateTable(d, table); err != nil {
+			b.err = err
 		}
 	}
 	return b
@@ -313,14 +312,15 @@ func (b *InsertBuilder) SQL() (string, []any, error) {
 	}
 	buf := getBuffer()
 	defer putBuffer(buf)
-	ab := newArgBuilder(b.d, 1)
+	ab := newArgBuilder(b.d, buf)
+	defer putArgBuilder(ab)
 	if err := b.appendSQL(buf, ab); err != nil {
 		return "", nil, err
 	}
 	return buf.String(), ab.args, nil
 }
 
-func (b *InsertBuilder) appendSQL(buf *bytes.Buffer, ab *argBuilder) error {
+func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 	if strings.TrimSpace(b.table) == "" {
 		return errors.New("corm: missing table for insert")
 	}
@@ -399,8 +399,8 @@ func (b *InsertBuilder) appendSQL(buf *bytes.Buffer, ab *argBuilder) error {
 		if strings.TrimSpace(s.SQL) == "" {
 			continue
 		}
-		buf.WriteString(" ")
-		if err := ab.appendExpr(buf, s); err != nil {
+		buf.WriteByte(' ')
+		if err := ab.appendExpr(s); err != nil {
 			return err
 		}
 	}

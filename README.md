@@ -621,6 +621,27 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v1.2.0
+
+**Security Fixes:**
+- Fixed SAVEPOINT name validation to prevent potential SQL injection
+- Enhanced HAVING clause validation to return explicit errors instead of silently skipping empty expressions
+- Added SQL statement length limit (1MB) to prevent excessively long SQL from causing database rejection or memory exhaustion
+- Added table name length limit (128 characters) to maintain consistency with SAVEPOINT name limits
+
+**Performance Optimizations:**
+- Extracted `NormalizeColumn` to `internal` package to eliminate code duplication
+- Optimized memory allocation using `sync.Pool` (ToSnake, colsKey, argBuilder, whereBuilder)
+- Pre-allocated argBuilder args slice to reduce expansion overhead
+- Added QuoteIdent caching (MySQL/PostgreSQL) to reduce memory allocations for repeated identifier quoting
+- Added ToSnake caching to reduce memory allocations for repeated snake_case conversions
+
+**API Improvements:**
+- Enhanced error messages with clearer debugging guidance
+- Optimized chain API to be closer to SQL primitives
+- Added `Engine.Stats()` method for connection pool monitoring
+- Fixed nil slice bugs in SelectBuilder, UpdateBuilder, and DeleteBuilder constructors
+
 ### v1.1.3
 
 **Security Fixes:**
@@ -645,3 +666,28 @@ err := e.Select("id", "name").
 ## License
 
 MIT
+## Query Caching Considerations
+
+Query caching is a complex feature that requires careful consideration of:
+
+1. **Cache Invalidation**: When to invalidate cached results after write operations
+2. **Memory Management**: How to limit memory usage and implement eviction policies  
+3. **Result Serialization**: How to serialize and deserialize query results efficiently
+4. **Concurrency**: How to handle concurrent access to cached data
+
+Due to these complexities, query caching is best implemented at the application level rather than in the ORM layer. The ORM provides all the necessary hooks (SQL logging, custom executors) for applications to implement their own caching strategies.
+
+For simple use cases, consider using Go's built-in  or third-party caching libraries like  or  to cache scanned results rather than raw .
+
+## Query Caching Considerations
+
+Query caching is a complex feature that requires careful consideration of:
+
+1. **Cache Invalidation**: When to invalidate cached results after write operations
+2. **Memory Management**: How to limit memory usage and implement eviction policies  
+3. **Result Serialization**: How to serialize and deserialize query results efficiently
+4. **Concurrency**: How to handle concurrent access to cached data
+
+Due to these complexities, query caching is best implemented at the application level rather than in the ORM layer. The ORM provides all the necessary hooks (SQL logging, custom executors) for applications to implement their own caching strategies.
+
+For simple use cases, consider using Go's built-in `sync.Map` or third-party caching libraries like `ristretto` or `bigcache` to cache scanned results rather than raw `sql.Rows`.

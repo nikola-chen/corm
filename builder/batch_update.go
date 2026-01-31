@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -43,13 +42,22 @@ type batchUpdateBuilder struct {
 var keepCurrentSentinel = new(struct{})
 
 func newBatchUpdate(exec Executor, d dialect.Dialect, table string) *batchUpdateBuilder {
-	return &batchUpdateBuilder{
+	b := &batchUpdateBuilder{
 		exec:      exec,
 		d:         d,
 		table:     table,
 		keyColumn: "id",
 		where:     whereBuilder{d: d},
 	}
+	
+	table = strings.TrimSpace(table)
+	if table != "" && d != nil {
+		if _, err := validateTable(d, table); err != nil {
+			b.err = err
+		}
+	}
+	
+	return b
 }
 
 // Key sets the column name to be used as the join key for batch updates.
@@ -309,14 +317,14 @@ func (b *batchUpdateBuilder) SQL() (string, []any, error) {
 	}
 	buf := getBuffer()
 	defer putBuffer(buf)
-	ab := newArgBuilder(b.d, 1)
+	ab := newArgBuilder(b.d, buf)
 	if err := b.appendSQL(buf, ab); err != nil {
 		return "", nil, err
 	}
 	return buf.String(), ab.args, nil
 }
 
-func (b *batchUpdateBuilder) appendSQL(buf *bytes.Buffer, ab *argBuilder) error {
+func (b *batchUpdateBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 	if strings.TrimSpace(b.table) == "" {
 		return errors.New("corm: missing table for batch update")
 	}

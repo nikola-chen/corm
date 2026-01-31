@@ -1,30 +1,58 @@
 package builder
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
 )
+
+const (
+	mysqlPlaceholder = "?"
+	maxSQLLength     = 1024 * 1024 // 1MB max SQL length to prevent DoS
+)
+
+// argBuilderPool reduces allocations by reusing argBuilder instances.
+var argBuilderPool = sync.Pool{
+	New: func() any {
+		return &argBuilder{
+			args: make([]any, 0, 32),
+		}
+	},
+}
+
+// maxPooledArgs limits the capacity of args slice to prevent memory bloat.
+const maxPooledArgs = 256
 
 type argBuilder struct {
 	d         dialect.Dialect
 	idx       int
 	args      []any
 	usesQmark bool
+	buf       *strings.Builder
 }
 
-func newArgBuilder(d dialect.Dialect, startIndex int) *argBuilder {
-	return &argBuilder{
-		d:         d,
-		idx:       startIndex,
-		args:      make([]any, 0, 16),
-		usesQmark: d.Placeholder(1) == "?",
+func newArgBuilder(d dialect.Dialect, buf *strings.Builder) *argBuilder {
+	ab := argBuilderPool.Get().(*argBuilder)
+	ab.d = d
+	ab.idx = 1
+	ab.args = ab.args[:0]
+	ab.usesQmark = d.Placeholder(1) == "?"
+	ab.buf = buf
+	return ab
+}
+
+func putArgBuilder(ab *argBuilder) {
+	if ab == nil || cap(ab.args) > maxPooledArgs {
+		return
 	}
+	ab.d = nil
+	ab.buf = nil
+	argBuilderPool.Put(ab)
 }
 
 func (a *argBuilder) usesQuestionPlaceholders() bool {
@@ -33,53 +61,73 @@ func (a *argBuilder) usesQuestionPlaceholders() bool {
 
 func (a *argBuilder) add(v any) string {
 	a.args = append(a.args, v)
+	if a.usesQmark {
+		a.idx++
+		return mysqlPlaceholder
+	}
 	p := a.d.Placeholder(a.idx)
 	a.idx++
 	return p
 }
 
-func (a *argBuilder) appendExpr(buf *bytes.Buffer, e clause.Expr) error {
-	if strings.TrimSpace(e.SQL) == "" {
+func (a *argBuilder) appendExpr(e clause.Expr) error {
+	sql := e.SQL
+	if len(sql) > 0 && sql[0] == ' ' {
+		sql = sql[1:]
+	}
+	if len(sql) == 0 {
 		return nil
+	}
+	// Check if adding this SQL would exceed the maximum length
+	if a.buf.Len()+len(sql) > maxSQLLength {
+		return errors.New("corm: SQL statement exceeds maximum length of 1MB")
 	}
 	if len(e.Args) == 0 {
-		buf.WriteString(e.SQL)
+		a.buf.WriteString(sql)
 		return nil
 	}
-	if strings.IndexByte(e.SQL, '?') < 0 {
+	if strings.IndexByte(sql, '?') < 0 {
 		return errors.New("corm: missing placeholders for args")
 	}
 	expected := len(e.Args)
 	if a.usesQuestionPlaceholders() {
-		if count := countQuestionPlaceholders(e.SQL, a.d.Name() == "mysql"); count != expected {
+		if count := countQuestionPlaceholders(sql, a.d.Name() == "mysql"); count != expected {
 			return fmt.Errorf("corm: placeholder count mismatch: expected %d, got %d", expected, count)
 		}
-		buf.WriteString(e.SQL)
+		a.buf.WriteString(sql)
 		a.args = append(a.args, e.Args...)
 		a.idx += expected
 		return nil
 	}
 	if a.d.Name() == "postgres" {
-		rewritten, next, err := rewritePostgresQuestionPlaceholders(e.SQL, a.idx, false)
+		rewritten, next, err := rewritePostgresQuestionPlaceholders(sql, a.idx, false)
 		if err != nil {
 			return err
 		}
 		if next-a.idx != expected {
 			return fmt.Errorf("corm: placeholder count mismatch: expected %d, got %d", expected, next-a.idx)
 		}
-		buf.WriteString(rewritten)
+		// Check if adding rewritten SQL would exceed the maximum length
+		if a.buf.Len()+len(rewritten) > maxSQLLength {
+			return errors.New("corm: SQL statement exceeds maximum length of 1MB")
+		}
+		a.buf.WriteString(rewritten)
 		a.args = append(a.args, e.Args...)
 		a.idx = next
 		return nil
 	}
-	rewritten, next, err := rewriteQuestionPlaceholders(e.SQL, a.idx, a.d.Placeholder, a.d.Name() == "mysql")
+	rewritten, next, err := rewriteQuestionPlaceholders(sql, a.idx, a.d.Placeholder, a.d.Name() == "mysql")
 	if err != nil {
 		return err
 	}
 	if next-a.idx != expected {
 		return fmt.Errorf("corm: placeholder count mismatch: expected %d, got %d", expected, next-a.idx)
 	}
-	buf.WriteString(rewritten)
+	// Check if adding rewritten SQL would exceed the maximum length
+	if a.buf.Len()+len(rewritten) > maxSQLLength {
+		return errors.New("corm: SQL statement exceeds maximum length of 1MB")
+	}
+	a.buf.WriteString(rewritten)
 	a.args = append(a.args, e.Args...)
 	a.idx = next
 	return nil
@@ -203,6 +251,42 @@ func rewriteQuestionPlaceholders(sql string, startIndex int, placeholder func(in
 	if strings.IndexByte(sql, '?') < 0 {
 		return sql, startIndex, nil
 	}
+
+	// Fast path: check if SQL is simple (no quotes, comments, or dollar tags)
+	isSimple := true
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
+		if c == '\'' || c == '"' || c == '-' || c == '/' || c == '$' {
+			isSimple = false
+			break
+		}
+	}
+
+	if isSimple {
+		// Simple case: just replace ? with $N
+		count := 0
+		for i := 0; i < len(sql); i++ {
+			if sql[i] == '?' {
+				count++
+			}
+		}
+		if count == 0 {
+			return sql, startIndex, nil
+		}
+		var out strings.Builder
+		out.Grow(len(sql) + count*3)
+		nextIndex := startIndex
+		for i := 0; i < len(sql); i++ {
+			if sql[i] == '?' {
+				out.WriteString(placeholder(nextIndex))
+				nextIndex++
+			} else {
+				out.WriteByte(sql[i])
+			}
+		}
+		return out.String(), nextIndex, nil
+	}
+
 	var out strings.Builder
 	out.Grow(len(sql) + 8)
 
@@ -340,6 +424,40 @@ func rewritePlaceholdersCommon(sql string, startIndex int, isPostgres bool) (str
 	if strings.IndexByte(sql, '?') < 0 && !isPostgres {
 		return sql, startIndex, nil
 	}
+
+	// Fast path: check if SQL is simple (no quotes, comments, or dollar tags)
+	isSimple := true
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
+		if c == '\'' || c == '"' || c == '-' || c == '/' || c == '$' {
+			isSimple = false
+			break
+		}
+	}
+
+	if isSimple && strings.IndexByte(sql, '?') >= 0 {
+		// Simple case: just replace ? with $N for postgres
+		count := 0
+		for i := 0; i < len(sql); i++ {
+			if sql[i] == '?' {
+				count++
+			}
+		}
+		var out strings.Builder
+		out.Grow(len(sql) + count*4)
+		nextIndex := startIndex
+		for i := 0; i < len(sql); i++ {
+			if sql[i] == '?' {
+				out.WriteByte('$')
+				out.WriteString(strconv.Itoa(nextIndex))
+				nextIndex++
+			} else {
+				out.WriteByte(sql[i])
+			}
+		}
+		return out.String(), nextIndex, nil
+	}
+
 	var out strings.Builder
 	out.Grow(len(sql) + 8)
 

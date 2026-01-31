@@ -47,31 +47,6 @@ func Dialect(driver string) *API {
 	return &API{d: d}
 }
 
-// MustDialect creates an API by driver name or panics if the dialect is not registered.
-func MustDialect(driver string) *API {
-	a := Dialect(driver)
-	if a.err != nil {
-		panic(a.err)
-	}
-	return a
-}
-
-// For creates an API by driver name and binds an Executor.
-func For(driver string, exec Executor) *API {
-	a := Dialect(driver)
-	a.exec = exec
-	return a
-}
-
-// MustFor creates an API by driver name and binds an Executor or panics if unsupported.
-func MustFor(driver string, exec Executor) *API {
-	a := For(driver, exec)
-	if a.err != nil {
-		panic(a.err)
-	}
-	return a
-}
-
 // MySQL returns an API bound to the MySQL dialect.
 func MySQL() *API {
 	return Dialect("mysql")

@@ -31,7 +31,7 @@
 
 ## 2. 目录与职责（面向 AI 的模块地图）
 
-- `engine/`：对外入口（连接、事务、配置、SQL 日志）
+- `engine/`：对外入口（连接、事务、配置、SQL 日志、连接池监控）
 - `builder/`：链式 Query Builder（SELECT/INSERT/UPDATE/DELETE）与 SQL 生成
 - `clause/`：可复用表达式（`And/Or/In/Raw/Not/IsNull/IsNotNull`，以及聚合函数辅助）
 - `schema/`：结构体字段解析（`db` tag、`TableName()`、字段策略）
@@ -80,7 +80,25 @@ q := e.Select().From("users").Where("id = " + userInput)
 默认参数格式化对 `string` 做全量脱敏，并默认不展开 `error/fmt.Stringer` 内容；如自定义 `Config.ArgFormatter`，也必须保持脱敏策略（避免明文输出敏感字段）。
 可通过 `Config.MaxLogSQLLen/MaxLogArgsItems/MaxLogArgsLen` 控制日志体积，避免超长 SQL/参数导致日志放大。
 
-### 3.5 错误处理最佳实践
+### 3.5 SQL 长度限制
+
+`corm` 对生成的 SQL 语句长度有限制，默认最大长度为 1MB。如果生成的 SQL 超过此限制，会返回错误：
+```
+corm: SQL statement exceeds maximum length of 1MB
+```
+
+此限制是为了防止恶意或意外生成的超长 SQL 导致数据库拒绝或内存耗尽。对于正常业务场景，1MB 的限制已经足够。如果确实需要更长的 SQL，请考虑重构查询逻辑或分批执行。
+
+### 3.6 表名长度限制
+
+`corm` 对表名长度有限制，最大长度为 128 字符（与 SAVEPOINT 名称限制保持一致）。如果表名超过此限制，会返回错误：
+```
+corm: table name exceeds maximum length of 128 characters
+```
+
+此限制确保了标识符的合理性和数据库兼容性。
+
+### 3.7 错误处理最佳实践
 
 `corm` 内部返回的 error 可能被 `fmt.Errorf` 包装。
 推荐使用 `errors.Is(err, sql.ErrNoRows)` 来判断是否未找到记录，而不是字符串匹配。
@@ -306,7 +324,52 @@ defer rows.Close() // 容易遗漏！
 
 ---
 
-## 8. 最佳实践：Context 超时控制
+## 8. 最佳实践：连接池监控
+
+`corm` 提供了连接池监控功能，可以通过 `Engine.Stats()` 方法获取连接池的统计信息，用于监控和诊断连接池状态。
+
+```go
+import "database/sql"
+
+// 获取连接池统计信息
+stats := e.Stats()
+
+// stats 包含以下字段：
+// - OpenConnections: 当前打开的连接数
+// - InUse: 正在使用的连接数
+// - Idle: 空闲连接数
+// - WaitCount: 等待连接的总次数
+// - WaitDuration: 等待连接的总时长
+// - MaxIdleClosed: 因超过最大空闲连接数而关闭的连接数
+// - MaxLifetimeClosed: 因超过最大生命周期而关闭的连接数
+
+// 示例：监控连接池健康状态
+func MonitorPoolHealth(db *engine.Engine) {
+	stats := db.Stats()
+	
+	// 检查连接池是否接近饱和
+	if stats.InUse >= stats.MaxOpenConns*9/10 {
+		log.Printf("WARNING: Connection pool nearly full: %d/%d", stats.InUse, stats.MaxOpenConns)
+	}
+	
+	// 检查是否有大量等待
+	if stats.WaitCount > 1000 {
+		log.Printf("WARNING: High connection wait count: %d", stats.WaitCount)
+	}
+	
+	// 检查平均等待时间
+	if stats.WaitCount > 0 {
+		avgWait := stats.WaitDuration / time.Duration(stats.WaitCount)
+		if avgWait > 100*time.Millisecond {
+			log.Printf("WARNING: High average wait time: %v", avgWait)
+		}
+	}
+}
+```
+
+建议在生产环境中定期调用 `Stats()` 方法，将连接池指标上报到监控系统（如 Prometheus、Datadog 等），以便及时发现连接池问题。
+
+## 9. 最佳实践：Context 超时控制
 
 强烈建议为所有数据库操作设置 Context 超时，防止长时间阻塞。
 
@@ -329,7 +392,7 @@ func GetUserWithTimeout(db *engine.Engine, userID int) (*User, error) {
 }
 ```
 
-## 9. 最佳实践：大批量数据分批处理
+## 10. 最佳实践：大批量数据分批处理
 
 对于超过 1000 行的批量插入或更新，建议分批执行以避免 SQL 语句过长或数据库包大小限制。
 
@@ -350,9 +413,9 @@ func BatchInsertUsers(ctx context.Context, db *engine.Engine, users []User) erro
 }
 ```
 
-## 10. 常用设计模式
+## 11. 常用设计模式
 
-### 10.1 Repository 模式
+### 11.1 Repository 模式
 
 ```go
 type UserRepository struct {
@@ -386,7 +449,7 @@ func (r *UserRepository) ListByStatus(ctx context.Context, status int, limit int
 }
 ```
 
-### 10.2 事务中的多表操作
+### 11.2 事务中的多表操作
 
 ```go
 func Transfer(ctx context.Context, db *engine.Engine, fromID, toID int64, amount float64) error {
@@ -427,7 +490,7 @@ func Transfer(ctx context.Context, db *engine.Engine, fromID, toID int64, amount
 }
 ```
 
-### 10.3 乐观锁模式
+### 11.3 乐观锁模式
 
 ```go
 type Product struct {
@@ -455,11 +518,32 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 }
 ```
 
-## 11. 版本与兼容性提示
+## 12. 版本与兼容性提示
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v1.1.3`
+- 当前版本：`v1.2.0`
+
+### v1.2.0 更新内容
+
+**安全修复：**
+- 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
+- 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
+- 添加 SQL 语句长度限制（1MB），防止超长 SQL 导致数据库拒绝或内存耗尽
+- 添加表名长度限制（128 字符），与 SAVEPOINT 名称限制保持一致
+
+**性能优化：**
+- 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
+- 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey, argBuilder, whereBuilder）
+- 预分配 argBuilder args 切片，减少扩容开销
+- 添加 QuoteIdent 缓存（MySQL/PostgreSQL），减少重复标识符引用的内存分配
+- 添加 ToSnake 缓存，减少重复 snake_case 转换的内存分配
+
+**API 改进：**
+- 增强错误信息，提供更明确的调试指引
+- 优化链式调用 API，更贴近 SQL 原语
+- 添加 `Engine.Stats()` 方法，提供连接池监控功能
+- 修复 SelectBuilder、UpdateBuilder、DeleteBuilder 中的 nil slice bug
 
 ### v1.1.3 更新内容
 
@@ -467,7 +551,7 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 - 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
 - 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
 
-**代码优化：**
+**性能优化：**
 - 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
 - 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey）
 - 预分配 argBuilder args 切片，减少扩容开销

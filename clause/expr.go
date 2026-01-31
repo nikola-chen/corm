@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+var emptyArgs = make([]any, 0)
+
+// EmptyArgs returns an empty args slice for reuse.
+func EmptyArgs() []any {
+	return emptyArgs
+}
+
 // Expr represents a SQL expression fragment.
 type Expr struct {
 	SQL  string
@@ -13,6 +20,9 @@ type Expr struct {
 
 // Raw creates a raw SQL expression.
 func Raw(sql string, args ...any) Expr {
+	if len(args) == 0 {
+		return Expr{SQL: sql, Args: emptyArgs}
+	}
 	return Expr{SQL: sql, Args: args}
 }
 
@@ -73,7 +83,7 @@ func Like(column string, value any) Expr {
 // It automatically flattens slice arguments.
 func In(column string, values ...any) Expr {
 	if len(values) == 0 {
-		return Expr{SQL: "1=0"}
+		return Expr{SQL: "1=0", Args: emptyArgs}
 	}
 
 	// Fast path for single slice argument
@@ -81,14 +91,14 @@ func In(column string, values ...any) Expr {
 		switch s := values[0].(type) {
 		case []any:
 			if len(s) == 0 {
-				return Expr{SQL: "1=0"}
+				return Expr{SQL: "1=0", Args: emptyArgs}
 			}
 			flattened := make([]any, len(s))
 			copy(flattened, s)
 			return buildIn(column, flattened)
 		case []string:
 			if len(s) == 0 {
-				return Expr{SQL: "1=0"}
+				return Expr{SQL: "1=0", Args: emptyArgs}
 			}
 			flattened := make([]any, len(s))
 			for i := range s {
@@ -97,7 +107,7 @@ func In(column string, values ...any) Expr {
 			return buildIn(column, flattened)
 		case []int:
 			if len(s) == 0 {
-				return Expr{SQL: "1=0"}
+				return Expr{SQL: "1=0", Args: emptyArgs}
 			}
 			flattened := make([]any, len(s))
 			for i := range s {
@@ -106,7 +116,7 @@ func In(column string, values ...any) Expr {
 			return buildIn(column, flattened)
 		case []int64:
 			if len(s) == 0 {
-				return Expr{SQL: "1=0"}
+				return Expr{SQL: "1=0", Args: emptyArgs}
 			}
 			flattened := make([]any, len(s))
 			for i := range s {
@@ -115,7 +125,7 @@ func In(column string, values ...any) Expr {
 			return buildIn(column, flattened)
 		case []uint64:
 			if len(s) == 0 {
-				return Expr{SQL: "1=0"}
+				return Expr{SQL: "1=0", Args: emptyArgs}
 			}
 			flattened := make([]any, len(s))
 			for i := range s {
@@ -124,7 +134,7 @@ func In(column string, values ...any) Expr {
 			return buildIn(column, flattened)
 		case []int32:
 			if len(s) == 0 {
-				return Expr{SQL: "1=0"}
+				return Expr{SQL: "1=0", Args: emptyArgs}
 			}
 			flattened := make([]any, len(s))
 			for i := range s {
@@ -133,7 +143,7 @@ func In(column string, values ...any) Expr {
 			return buildIn(column, flattened)
 		case []uint:
 			if len(s) == 0 {
-				return Expr{SQL: "1=0"}
+				return Expr{SQL: "1=0", Args: emptyArgs}
 			}
 			flattened := make([]any, len(s))
 			for i := range s {
@@ -146,7 +156,7 @@ func In(column string, values ...any) Expr {
 			if rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() != reflect.Uint8 {
 				n := rv.Len()
 				if n == 0 {
-					return Expr{SQL: "1=0"}
+					return Expr{SQL: "1=0", Args: emptyArgs}
 				}
 
 				// Optimization: if it's a slice of simple types, we can iterate without reflection for each element?
@@ -177,16 +187,31 @@ func In(column string, values ...any) Expr {
 	}
 
 	if len(flattened) == 0 {
-		return Expr{SQL: "1=0"}
+		return Expr{SQL: "1=0", Args: emptyArgs}
 	}
 
 	return buildIn(column, flattened)
 }
 
 func buildIn(column string, args []any) Expr {
+	n := len(args)
+	// Fast path for common small sizes
+	switch n {
+	case 1:
+		return Expr{SQL: column + " IN (?)", Args: args}
+	case 2:
+		return Expr{SQL: column + " IN (?, ?)", Args: args}
+	case 3:
+		return Expr{SQL: column + " IN (?, ?, ?)", Args: args}
+	case 4:
+		return Expr{SQL: column + " IN (?, ?, ?, ?)", Args: args}
+	case 5:
+		return Expr{SQL: column + " IN (?, ?, ?, ?, ?)", Args: args}
+	}
+
 	var b strings.Builder
-	// approximate size: column + " IN (" + (2*n) + ")"
-	b.Grow(len(column) + 6 + len(args)*2)
+	// approximate size: column + " IN (" + (3*n) + ")"
+	b.Grow(len(column) + 6 + n*3)
 
 	b.WriteString(column)
 	b.WriteString(" IN (")
@@ -194,9 +219,9 @@ func buildIn(column string, args []any) Expr {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString("?")
+		b.WriteByte('?')
 	}
-	b.WriteString(")")
+	b.WriteByte(')')
 	return Expr{SQL: b.String(), Args: args}
 }
 
@@ -211,13 +236,13 @@ func Not(expr Expr) Expr {
 // IsNull checks if a column is NULL.
 // The column must be a trusted identifier (do not pass user input).
 func IsNull(column string) Expr {
-	return Expr{SQL: column + " IS NULL"}
+	return Expr{SQL: column + " IS NULL", Args: emptyArgs}
 }
 
 // IsNotNull checks if a column is NOT NULL.
 // The column must be a trusted identifier (do not pass user input).
 func IsNotNull(column string) Expr {
-	return Expr{SQL: column + " IS NOT NULL"}
+	return Expr{SQL: column + " IS NOT NULL", Args: emptyArgs}
 }
 
 // Alias creates an alias expression: "expression AS alias"
@@ -230,13 +255,13 @@ func Alias(expression, alias string) string {
 // This is a placeholder; actual usage often involves subqueries.
 // The column, operator and subquery must be trusted identifiers/SQL fragments.
 func Any(column, operator, subquery string) Expr {
-	return Expr{SQL: column + " " + operator + " ANY (" + subquery + ")"}
+	return Expr{SQL: column + " " + operator + " ANY (" + subquery + ")", Args: emptyArgs}
 }
 
 // All creates an ALL expression: "column operator ALL (subquery)"
 // The column, operator and subquery must be trusted identifiers/SQL fragments.
 func All(column, operator, subquery string) Expr {
-	return Expr{SQL: column + " " + operator + " ALL (" + subquery + ")"}
+	return Expr{SQL: column + " " + operator + " ALL (" + subquery + ")", Args: emptyArgs}
 }
 
 // Some is an alias for Any.
@@ -248,31 +273,31 @@ func Some(column, operator, subquery string) Expr {
 // Count creates a COUNT expression.
 // The column must be a trusted identifier (do not pass user input).
 func Count(column string) Expr {
-	return Expr{SQL: "COUNT(" + column + ")"}
+	return Expr{SQL: "COUNT(" + column + ")", Args: emptyArgs}
 }
 
 // Sum creates a SUM expression.
 // The column must be a trusted identifier (do not pass user input).
 func Sum(column string) Expr {
-	return Expr{SQL: "SUM(" + column + ")"}
+	return Expr{SQL: "SUM(" + column + ")", Args: emptyArgs}
 }
 
 // Avg creates an AVG expression.
 // The column must be a trusted identifier (do not pass user input).
 func Avg(column string) Expr {
-	return Expr{SQL: "AVG(" + column + ")"}
+	return Expr{SQL: "AVG(" + column + ")", Args: emptyArgs}
 }
 
 // Max creates a MAX expression.
 // The column must be a trusted identifier (do not pass user input).
 func Max(column string) Expr {
-	return Expr{SQL: "MAX(" + column + ")"}
+	return Expr{SQL: "MAX(" + column + ")", Args: emptyArgs}
 }
 
 // Min creates a MIN expression.
 // The column must be a trusted identifier (do not pass user input).
 func Min(column string) Expr {
-	return Expr{SQL: "MIN(" + column + ")"}
+	return Expr{SQL: "MIN(" + column + ")", Args: emptyArgs}
 }
 
 func join(op string, exprs ...Expr) Expr {

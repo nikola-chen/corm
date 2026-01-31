@@ -1,10 +1,10 @@
 package builder
 
 import (
-	"bytes"
 	"errors"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
@@ -14,6 +14,18 @@ const (
 	whereExpr = iota
 	whereSubquery
 )
+
+// whereBuilderPool reduces allocations by reusing whereBuilder instances.
+var whereBuilderPool = sync.Pool{
+	New: func() any {
+		return &whereBuilder{
+			items: make([]whereItem, 0, 8),
+		}
+	},
+}
+
+// maxPooledWhereItems limits the capacity of items slice to prevent memory bloat.
+const maxPooledWhereItems = 64
 
 type whereItem struct {
 	kind   int
@@ -29,6 +41,29 @@ type whereBuilder struct {
 	err   error
 }
 
+func newWhereBuilder(d dialect.Dialect) *whereBuilder {
+	wb := whereBuilderPool.Get().(*whereBuilder)
+	wb.d = d
+	wb.items = wb.items[:0]
+	wb.err = nil
+	return wb
+}
+
+func putWhereBuilder(wb *whereBuilder) {
+	if wb == nil || cap(wb.items) > maxPooledWhereItems {
+		return
+	}
+	wb.d = nil
+	wb.err = nil
+	// Clear items to help GC
+	for i := range wb.items {
+		wb.items[i].expr = clause.Expr{}
+		wb.items[i].sub = nil
+	}
+	wb.items = wb.items[:0]
+	whereBuilderPool.Put(wb)
+}
+
 func (wb *whereBuilder) Where(sql string, args ...any) {
 	if wb.err != nil {
 		return
@@ -36,6 +71,9 @@ func (wb *whereBuilder) Where(sql string, args ...any) {
 	sql = strings.TrimSpace(sql)
 	if sql == "" {
 		return
+	}
+	if len(wb.items) == 0 {
+		wb.items = make([]whereItem, 0, 4)
 	}
 	wb.items = append(wb.items, whereItem{kind: whereExpr, expr: clause.Raw(sql, args...)})
 }
@@ -49,7 +87,10 @@ func (wb *whereBuilder) WhereEq(column string, value any) {
 		wb.err = errors.New("corm: invalid column identifier")
 		return
 	}
-	wb.Where(col+" = ?", value)
+	if len(wb.items) == 0 {
+		wb.items = make([]whereItem, 0, 4)
+	}
+	wb.items = append(wb.items, whereItem{kind: whereExpr, expr: clause.Eq(col, value)})
 }
 
 func (wb *whereBuilder) WhereIn(column string, args ...any) {
@@ -73,7 +114,10 @@ func (wb *whereBuilder) WhereLike(column string, value any) {
 		wb.err = errors.New("corm: invalid column identifier")
 		return
 	}
-	wb.Where(col+" LIKE ?", value)
+	if len(wb.items) == 0 {
+		wb.items = make([]whereItem, 0, 4)
+	}
+	wb.items = append(wb.items, whereItem{kind: whereExpr, expr: clause.Like(col, value)})
 }
 
 func (wb *whereBuilder) WhereMap(conditions map[string]any) {
@@ -112,6 +156,9 @@ func (wb *whereBuilder) WhereSubquery(column, op string, sub *SelectBuilder) {
 		wb.err = errors.New("corm: invalid operator")
 		return
 	}
+	if len(wb.items) == 0 {
+		wb.items = make([]whereItem, 0, 4)
+	}
 	wb.items = append(wb.items, whereItem{kind: whereSubquery, column: column, op: op, sub: sub})
 }
 
@@ -126,10 +173,13 @@ func (wb *whereBuilder) WhereExpr(e clause.Expr) {
 	if strings.TrimSpace(e.SQL) == "" {
 		return
 	}
+	if len(wb.items) == 0 {
+		wb.items = make([]whereItem, 0, 4)
+	}
 	wb.items = append(wb.items, whereItem{kind: whereExpr, expr: e})
 }
 
-func (wb *whereBuilder) appendWhere(buf *bytes.Buffer, ab *argBuilder) error {
+func (wb *whereBuilder) appendWhere(buf *strings.Builder, ab *argBuilder) error {
 	if len(wb.items) == 0 {
 		return nil
 	}
@@ -144,11 +194,11 @@ func (wb *whereBuilder) appendWhere(buf *bytes.Buffer, ab *argBuilder) error {
 			if wrote > 0 {
 				buf.WriteString(" AND ")
 			}
-			buf.WriteString("(")
-			if err := ab.appendExpr(buf, w.expr); err != nil {
+			buf.WriteByte('(')
+			if err := ab.appendExpr(w.expr); err != nil {
 				return err
 			}
-			buf.WriteString(")")
+			buf.WriteByte(')')
 			wrote++
 		case whereSubquery:
 			if w.sub == nil {
@@ -161,9 +211,9 @@ func (wb *whereBuilder) appendWhere(buf *bytes.Buffer, ab *argBuilder) error {
 			if wrote > 0 {
 				buf.WriteString(" AND ")
 			}
-			buf.WriteString("(")
+			buf.WriteByte('(')
 			buf.WriteString(col)
-			buf.WriteString(" ")
+			buf.WriteByte(' ')
 			buf.WriteString(w.op)
 			buf.WriteString(" (")
 			if err := w.sub.appendSQL(buf, ab); err != nil {
@@ -176,12 +226,12 @@ func (wb *whereBuilder) appendWhere(buf *bytes.Buffer, ab *argBuilder) error {
 		}
 	}
 	if wrote == 0 {
-		buf.Truncate(buf.Len() - len(" WHERE "))
+		return errors.New("corm: all WHERE expressions are empty")
 	}
 	return nil
 }
 
-func (wb *whereBuilder) appendAndWhere(buf *bytes.Buffer, ab *argBuilder) error {
+func (wb *whereBuilder) appendAndWhere(buf *strings.Builder, ab *argBuilder) error {
 	if len(wb.items) == 0 {
 		return nil
 	}
@@ -193,10 +243,10 @@ func (wb *whereBuilder) appendAndWhere(buf *bytes.Buffer, ab *argBuilder) error 
 				continue
 			}
 			buf.WriteString(" AND (")
-			if err := ab.appendExpr(buf, w.expr); err != nil {
+			if err := ab.appendExpr(w.expr); err != nil {
 				return err
 			}
-			buf.WriteString(")")
+			buf.WriteByte(')')
 			wrote++
 		case whereSubquery:
 			if w.sub == nil {
@@ -208,7 +258,7 @@ func (wb *whereBuilder) appendAndWhere(buf *bytes.Buffer, ab *argBuilder) error 
 			}
 			buf.WriteString(" AND (")
 			buf.WriteString(col)
-			buf.WriteString(" ")
+			buf.WriteByte(' ')
 			buf.WriteString(w.op)
 			buf.WriteString(" (")
 			if err := w.sub.appendSQL(buf, ab); err != nil {

@@ -128,6 +128,11 @@ func (e *Engine) Close() error {
 	return e.db.Close()
 }
 
+// Stats returns database statistics.
+func (e *Engine) Stats() sql.DBStats {
+	return e.db.Stats()
+}
+
 // Ping verifies a connection to the database is still alive.
 func (e *Engine) Ping(ctx context.Context) error {
 	return e.db.PingContext(ctx)

@@ -28,10 +28,12 @@ const (
 
 func newDelete(exec Executor, d dialect.Dialect, table string) *DeleteBuilder {
 	table = strings.TrimSpace(table)
-	b := &DeleteBuilder{exec: exec, d: d, table: table, where: whereBuilder{d: d}}
+	b := &DeleteBuilder{exec: exec, d: d, table: table}
+	b.where.d = d
+	b.where.items = make([]whereItem, 0, 4)
 	if table != "" && d != nil {
-		if _, ok := quoteIdentStrict(d, table); !ok {
-			b.err = errors.New("corm: invalid table identifier")
+		if _, err := validateTable(d, table); err != nil {
+			b.err = err
 		}
 	}
 	return b
@@ -149,7 +151,8 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 
 	buf := getBuffer()
 	defer putBuffer(buf)
-	ab := newArgBuilder(b.d, 1)
+	ab := newArgBuilder(b.d, buf)
+	defer putArgBuilder(ab)
 
 	buf.WriteString("DELETE FROM ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)

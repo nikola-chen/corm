@@ -44,10 +44,12 @@ type UpdateBuilder struct {
 
 func newUpdate(exec Executor, d dialect.Dialect, table string) *UpdateBuilder {
 	table = strings.TrimSpace(table)
-	b := &UpdateBuilder{exec: exec, d: d, table: table, where: whereBuilder{d: d}}
+	b := &UpdateBuilder{exec: exec, d: d, table: table}
+	b.where.d = d
+	b.where.items = make([]whereItem, 0, 4)
 	if table != "" && d != nil {
-		if _, ok := quoteIdentStrict(d, table); !ok {
-			b.err = errors.New("corm: invalid table identifier")
+		if _, err := validateTable(d, table); err != nil {
+			b.err = err
 		}
 	}
 	return b
@@ -154,7 +156,7 @@ func (b *UpdateBuilder) Increment(column string, amount any) *UpdateBuilder {
 		b.err = errors.New("corm: invalid column identifier")
 		return b
 	}
-	b.sets = append(b.sets, setItem{column: column, value: clause.Raw(col+" + ?", amount)})
+	b.sets = append(b.sets, setItem{column: column, value: clause.Expr{SQL: col + " + ?", Args: []any{amount}}})
 	return b
 }
 
@@ -173,7 +175,7 @@ func (b *UpdateBuilder) Decrement(column string, amount any) *UpdateBuilder {
 		b.err = errors.New("corm: invalid column identifier")
 		return b
 	}
-	b.sets = append(b.sets, setItem{column: column, value: clause.Raw(col+" - ?", amount)})
+	b.sets = append(b.sets, setItem{column: column, value: clause.Expr{SQL: col + " - ?", Args: []any{amount}}})
 	return b
 }
 
@@ -441,7 +443,8 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 
 	buf := getBuffer()
 	defer putBuffer(buf)
-	ab := newArgBuilder(b.d, 1)
+	ab := newArgBuilder(b.d, buf)
+	defer putArgBuilder(ab)
 
 	buf.WriteString("UPDATE ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)
@@ -463,7 +466,7 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 		buf.WriteString(" = ")
 
 		if e, ok := s.value.(clause.Expr); ok {
-			if err := ab.appendExpr(buf, e); err != nil {
+			if err := ab.appendExpr(e); err != nil {
 				return "", nil, err
 			}
 		} else {

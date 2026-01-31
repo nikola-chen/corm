@@ -258,14 +258,46 @@ func parseStructFields(s *Schema, t reflect.Type, parentIndex []int) {
 	}
 }
 
+// indexPool is used to reuse index slices for nested struct fields.
+var indexPool = sync.Pool{
+	New: func() any {
+		b := make([]int, 0, 8)
+		return &b
+	},
+}
+
+const maxPooledIndexDepth = 16
+
 func appendIndex(parent []int, i int) []int {
 	if len(parent) == 0 {
 		return []int{i}
 	}
-	idx := make([]int, 0, len(parent)+1)
-	idx = append(idx, parent...)
-	idx = append(idx, i)
-	return idx
+	
+	// For shallow nesting, use stack allocation
+	if len(parent) < 4 {
+		idx := make([]int, len(parent)+1)
+		copy(idx, parent)
+		idx[len(parent)] = i
+		return idx
+	}
+	
+	// For deeper nesting, use pool
+	bufPtr := indexPool.Get().(*[]int)
+	buf := (*bufPtr)[:0]
+	if cap(buf) < len(parent)+1 {
+		buf = make([]int, 0, len(parent)+1)
+	}
+	buf = append(buf, parent...)
+	buf = append(buf, i)
+	
+	result := make([]int, len(buf))
+	copy(result, buf)
+	
+	if cap(buf) <= maxPooledIndexDepth {
+		*bufPtr = buf
+		indexPool.Put(bufPtr)
+	}
+	return result
 }
 
 func parseDBTag(tag string) (string, map[string]bool) {
@@ -289,25 +321,60 @@ func defaultTableName(t reflect.Type) string {
 	return ToSnake(t.Name())
 }
 
+// snakeCache caches snake_case conversions to avoid repeated allocations.
+var snakeCache sync.Map
+
+// maxSnakeCacheSize limits the cache size to prevent unbounded growth.
+const maxSnakeCacheSize = 1024
+
 // ToSnake converts a string to snake_case.
 func ToSnake(s string) string {
 	if s == "" {
 		return ""
 	}
-
-	// Fast path: check if all ASCII
-	allASCII := true
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			allASCII = false
-			break
+	
+	// Check cache first for common identifiers
+	if len(s) <= 32 {
+		if cached, ok := snakeCache.Load(s); ok {
+			return cached.(string)
 		}
 	}
 
-	if allASCII {
-		return toSnakeASCII(s)
+	// Fast path: check if all ASCII and already snake_case
+	allASCII := true
+	hasUpper := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 0x80 {
+			allASCII = false
+			break
+		}
+		if c >= 'A' && c <= 'Z' {
+			hasUpper = true
+		}
 	}
-	return toSnakeUnicode(s)
+
+	// If already snake_case (no uppercase), return as-is
+	if allASCII && !hasUpper {
+		// Cache common identifiers
+		if len(s) <= 32 && len(s) > 0 {
+			snakeCache.Store(s, s)
+		}
+		return s
+	}
+
+	var result string
+	if allASCII {
+		result = toSnakeASCII(s)
+	} else {
+		result = toSnakeUnicode(s)
+	}
+	
+	// Cache the result for common identifiers
+	if len(s) <= 32 && len(result) <= 64 {
+		snakeCache.Store(s, result)
+	}
+	return result
 }
 
 // toSnakeASCII converts an ASCII string to snake_case using pooled buffer.

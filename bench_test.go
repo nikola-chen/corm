@@ -149,3 +149,100 @@ func BenchmarkToSnake(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkBatchUpdateBuild
+func BenchmarkBatchUpdateBuild(b *testing.B) {
+qb := builder.MySQL()
+users := []BenchUser{
+{ID: 1, Name: "Alice", Age: 25},
+{ID: 2, Name: "Bob", Age: 30},
+{ID: 3, Name: "Charlie", Age: 35},
+}
+b.ResetTimer()
+for i := 0; i < b.N; i++ {
+_, _, err := qb.Update("users").
+Models(users).
+SQL()
+if err != nil {
+b.Fatal(err)
+}
+}
+}
+
+// BenchmarkInsertBatchBuild
+func BenchmarkInsertBatchBuild(b *testing.B) {
+qb := builder.MySQL()
+users := []BenchUser{
+{Name: "Alice", Age: 25},
+{Name: "Bob", Age: 30},
+{Name: "Charlie", Age: 35},
+}
+b.ResetTimer()
+for i := 0; i < b.N; i++ {
+_, _, err := qb.Insert("users").
+Models(users).
+SQL()
+if err != nil {
+b.Fatal(err)
+}
+}
+}
+
+// BenchmarkWhereInBuild
+func BenchmarkWhereInBuild(b *testing.B) {
+qb := builder.MySQL()
+ids := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+b.ResetTimer()
+for i := 0; i < b.N; i++ {
+_, _, err := qb.Select("*").
+From("users").
+WhereIn("id", ids).
+SQL()
+if err != nil {
+b.Fatal(err)
+}
+}
+}
+
+// BenchmarkJoinComplexBuild
+func BenchmarkJoinComplexBuild(b *testing.B) {
+qb := builder.MySQL()
+b.ResetTimer()
+for i := 0; i < b.N; i++ {
+_, _, err := qb.Select("u.name", "p.title", "c.content").
+FromAs("users", "u").
+LeftJoinAs("posts", "p", clause.Raw("u.id = p.user_id")).
+InnerJoinAs("comments", "c", clause.Raw("p.id = c.post_id")).
+Where("u.status = ?", 1).
+OrderBy("u.created_at", "ASC").
+Limit(50).
+SQL()
+if err != nil {
+b.Fatal(err)
+}
+}
+}
+
+// BenchmarkSchemaParseComplex
+func BenchmarkSchemaParseComplex(b *testing.B) {
+type ComplexStruct struct {
+ID          int    `db:"id,pk"`
+Name        string `db:"name"`
+Email       string `db:"email"`
+Age         int    `db:"age"`
+Status      int    `db:"status"`
+CreatedAt   string `db:"created_at"`
+UpdatedAt   string `db:"updated_at"`
+Profile     string `db:"profile"`
+Preferences string `db:"preferences"`
+Metadata    string `db:"metadata"`
+}
+user := ComplexStruct{}
+b.ResetTimer()
+for i := 0; i < b.N; i++ {
+_, err := schema.Parse(&user)
+if err != nil {
+b.Fatal(err)
+}
+}
+}

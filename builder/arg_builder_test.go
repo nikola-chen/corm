@@ -1,7 +1,7 @@
 package builder
 
 import (
-	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/nikola-chen/corm/clause"
@@ -10,10 +10,10 @@ import (
 
 func TestArgBuilderPlaceholderCountMismatch_MySQL(t *testing.T) {
 	d := dialect.MustGet("mysql")
-	ab := newArgBuilder(d, 1)
-	var buf bytes.Buffer
+	var buf strings.Builder
+	ab := newArgBuilder(d, &buf)
 
-	err := ab.appendExpr(&buf, clause.Raw("id = ?", 1, 2))
+	err := ab.appendExpr(clause.Raw("id = ?", 1, 2))
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -21,10 +21,10 @@ func TestArgBuilderPlaceholderCountMismatch_MySQL(t *testing.T) {
 
 func TestArgBuilderPlaceholderCountMismatch_Postgres(t *testing.T) {
 	d := dialect.MustGet("postgres")
-	ab := newArgBuilder(d, 1)
-	var buf bytes.Buffer
+	var buf strings.Builder
+	ab := newArgBuilder(d, &buf)
 
-	err := ab.appendExpr(&buf, clause.Raw("id = ? AND name = ?", 1))
+	err := ab.appendExpr(clause.Raw("id = ? AND name = ?", 1))
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -32,10 +32,10 @@ func TestArgBuilderPlaceholderCountMismatch_Postgres(t *testing.T) {
 
 func TestArgBuilderPostgresStringLiteralQuestionMark(t *testing.T) {
 	d := dialect.MustGet("postgres")
-	ab := newArgBuilder(d, 1)
-	var buf bytes.Buffer
+	var buf strings.Builder
+	ab := newArgBuilder(d, &buf)
 
-	err := ab.appendExpr(&buf, clause.Raw("note = '?' AND id = ?", 7))
+	err := ab.appendExpr(clause.Raw("note = '?' AND id = ?", 7))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,10 +49,10 @@ func TestArgBuilderPostgresStringLiteralQuestionMark(t *testing.T) {
 
 func TestArgBuilderPostgresJSONBOperatorConflict(t *testing.T) {
 	d := dialect.MustGet("postgres")
-	ab := newArgBuilder(d, 1)
-	var buf bytes.Buffer
+	var buf strings.Builder
+	ab := newArgBuilder(d, &buf)
 
-	err := ab.appendExpr(&buf, clause.Raw("data ? 'k' AND id = ?", 1))
+	err := ab.appendExpr(clause.Raw("data ? 'k' AND id = ?", 1))
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -60,10 +60,10 @@ func TestArgBuilderPostgresJSONBOperatorConflict(t *testing.T) {
 
 func TestArgBuilderMySQLBackslashEscapeInStringLiteral(t *testing.T) {
 	d := dialect.MustGet("mysql")
-	ab := newArgBuilder(d, 1)
-	var buf bytes.Buffer
+	var buf strings.Builder
+	ab := newArgBuilder(d, &buf)
 
-	err := ab.appendExpr(&buf, clause.Raw("note = 'don\\'t ?' AND id = ?", 7))
+	err := ab.appendExpr(clause.Raw("note = 'don\\'t ?' AND id = ?", 7))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -74,3 +74,6 @@ func TestArgBuilderMySQLBackslashEscapeInStringLiteral(t *testing.T) {
 		t.Fatalf("args=%v", ab.args)
 	}
 }
+
+
+
