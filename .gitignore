@@ -15,9 +15,13 @@
 # IDE
 .idea/
 .vscode/
+.trae/
 *.swp
 *.swo
 *~
+
+# GitHub
+.github/
 
 # Test binary
 *.test
