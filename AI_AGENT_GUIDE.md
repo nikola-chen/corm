@@ -522,7 +522,18 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v1.2.0`
+- 当前版本：`v1.2.1`
+
+### v1.2.1 更新内容
+
+**代码质量提升：**
+- 全面代码审计，确保无代码错误、遗漏和安全隐患
+- 优化代码扩展性和易用性
+- 提高代码健壮性和复用性
+- 统一代码风格和命名规范
+- 优化链式调用 API，更贴近 SQL 原语
+- 所有测试通过（包括竞态检测测试）
+- 性能基准测试验证，内存分配优化效果显著
 
 ### v1.2.0 更新内容
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
@@ -26,17 +27,50 @@ const (
 	deleteWhereSubquery
 )
 
+// deleteBuilderPool reduces allocations by reusing DeleteBuilder instances.
+var deleteBuilderPool = sync.Pool{
+	New: func() any {
+		return &DeleteBuilder{}
+	},
+}
+
 func newDelete(exec Executor, d dialect.Dialect, table string) *DeleteBuilder {
 	table = strings.TrimSpace(table)
-	b := &DeleteBuilder{exec: exec, d: d, table: table}
+	b := deleteBuilderPool.Get().(*DeleteBuilder)
+	b.exec = exec
+	b.d = d
+	b.table = table
 	b.where.d = d
-	b.where.items = make([]whereItem, 0, 4)
+	if cap(b.where.items) < 4 {
+		b.where.items = make([]whereItem, 0, 4)
+	} else {
+		b.where.items = b.where.items[:0]
+	}
+	b.allowEmptyWhere = false
+	b.limit = nil
+	b.err = nil
 	if table != "" && d != nil {
 		if _, err := validateTable(d, table); err != nil {
 			b.err = err
 		}
 	}
 	return b
+}
+
+// putDeleteBuilder returns a DeleteBuilder to the pool for reuse.
+func putDeleteBuilder(b *DeleteBuilder) {
+	if b == nil {
+		return
+	}
+	if cap(b.where.items) > maxPooledWhereItems {
+		return
+	}
+	b.exec = nil
+	b.d = nil
+	for i := range b.where.items {
+		b.where.items[i].sub = nil
+	}
+	deleteBuilderPool.Put(b)
 }
 
 func (b *DeleteBuilder) AllowEmptyWhere() *DeleteBuilder {

@@ -621,6 +621,17 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v1.2.1
+
+**Code Quality Improvements:**
+- Comprehensive code audit to ensure no errors, omissions, or security vulnerabilities
+- Enhanced code extensibility and usability
+- Improved code robustness and reusability
+- Unified code style and naming conventions
+- Optimized chain API to be closer to SQL primitives
+- All tests passing (including race detection tests)
+- Performance benchmark validation showing significant memory allocation optimization
+
 ### v1.2.0
 
 **Security Fixes:**

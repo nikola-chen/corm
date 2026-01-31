@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
@@ -42,17 +43,100 @@ type SelectBuilder struct {
 	err       error
 }
 
+// selectBuilderPool reduces allocations by reusing SelectBuilder instances.
+var selectBuilderPool = sync.Pool{
+	New: func() any {
+		return &SelectBuilder{}
+	},
+}
+
+// maxPooledSelectColumns limits the capacity of columns slice to prevent memory bloat.
+const maxPooledSelectColumns = 64
+
+// maxPooledSelectJoins limits the capacity of joins slice to prevent memory bloat.
+const maxPooledSelectJoins = 16
+
 func newSelect(exec Executor, d dialect.Dialect, columns []string) *SelectBuilder {
-	b := &SelectBuilder{exec: exec, d: d}
+	b := selectBuilderPool.Get().(*SelectBuilder)
+	b.exec = exec
+	b.d = d
 	b.where.d = d
-	b.where.items = make([]whereItem, 0, 4)
-	if len(columns) > 0 {
-		b.columns = make([]selectColumnItem, 0, len(columns))
-		for _, c := range columns {
-			b.columns = append(b.columns, selectColumnItem{kind: selectColumnIdent, ident: c})
-		}
+	if cap(b.where.items) < 4 {
+		b.where.items = make([]whereItem, 0, 4)
+	} else {
+		b.where.items = b.where.items[:0]
 	}
+	// Reset all fields
+	if cap(b.columns) < len(columns) {
+		b.columns = make([]selectColumnItem, 0, len(columns))
+	} else {
+		b.columns = b.columns[:0]
+	}
+	for _, c := range columns {
+		b.columns = append(b.columns, selectColumnItem{kind: selectColumnIdent, ident: c})
+	}
+	b.fromTable = ""
+	b.fromSub = nil
+	b.fromAlias = ""
+	if cap(b.joins) > maxPooledSelectJoins {
+		b.joins = nil
+	} else {
+		b.joins = b.joins[:0]
+	}
+	if cap(b.groupBy) > 16 {
+		b.groupBy = nil
+	} else {
+		b.groupBy = b.groupBy[:0]
+	}
+	if cap(b.having) > 8 {
+		b.having = nil
+	} else {
+		b.having = b.having[:0]
+	}
+	if cap(b.orderBy) > 16 {
+		b.orderBy = nil
+	} else {
+		b.orderBy = b.orderBy[:0]
+	}
+	b.limit = nil
+	b.offset = nil
+	b.distinct = false
+	b.forUpdate = false
+	if cap(b.unions) > 4 {
+		b.unions = nil
+	} else {
+		b.unions = b.unions[:0]
+	}
+	b.err = nil
 	return b
+}
+
+// putSelectBuilder returns a SelectBuilder to the pool for reuse.
+// This is called internally after SQL() to reduce allocations.
+func putSelectBuilder(b *SelectBuilder) {
+	if b == nil {
+		return
+	}
+	// Only pool if slices are within reasonable limits
+	if cap(b.columns) > maxPooledSelectColumns ||
+		cap(b.joins) > maxPooledSelectJoins ||
+		cap(b.where.items) > maxPooledWhereItems {
+		return
+	}
+	// Clear references to help GC
+	b.exec = nil
+	b.d = nil
+	b.fromSub = nil
+	for i := range b.where.items {
+		b.where.items[i].sub = nil
+	}
+	for i := range b.joins {
+		b.joins[i].sub = nil
+	}
+	for i := range b.unions {
+		b.unions[i].sub = nil
+	}
+	selectBuilderPool.Put(b)
 }
 
 const (

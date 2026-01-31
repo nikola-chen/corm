@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
@@ -31,15 +32,79 @@ type InsertBuilder struct {
 	suffix     []clause.Expr
 }
 
+// insertBuilderPool reduces allocations by reusing InsertBuilder instances.
+var insertBuilderPool = sync.Pool{
+	New: func() any {
+		return &InsertBuilder{}
+	},
+}
+
+// maxPooledInsertColumns limits the capacity of columns slice to prevent memory bloat.
+const maxPooledInsertColumns = 64
+
+// maxPooledInsertRows limits the capacity of rows slice to prevent memory bloat.
+const maxPooledInsertRows = 32
+
 func newInsert(exec Executor, d dialect.Dialect, table string) *InsertBuilder {
 	table = strings.TrimSpace(table)
-	b := &InsertBuilder{exec: exec, d: d, table: table}
+	b := insertBuilderPool.Get().(*InsertBuilder)
+	b.exec = exec
+	b.d = d
+	b.table = table
+	if cap(b.columns) > maxPooledInsertColumns {
+		b.columns = nil
+	} else {
+		b.columns = b.columns[:0]
+	}
+	if cap(b.rows) > maxPooledInsertRows {
+		b.rows = nil
+	} else {
+		// Clear row slices to help GC
+		for i := range b.rows {
+			b.rows[i] = nil
+		}
+		b.rows = b.rows[:0]
+	}
+	if cap(b.returning) > 16 {
+		b.returning = nil
+	} else {
+		b.returning = b.returning[:0]
+	}
+	b.err = nil
+	b.includePrimaryKey = false
+	b.includeAuto = false
+	b.includeReadonly = false
+	b.includeZero = false
+	b.fromSelect = nil
+	if cap(b.suffix) > 4 {
+		b.suffix = nil
+	} else {
+		b.suffix = b.suffix[:0]
+	}
 	if table != "" && d != nil {
 		if _, err := validateTable(d, table); err != nil {
 			b.err = err
 		}
 	}
 	return b
+}
+
+// putInsertBuilder returns an InsertBuilder to the pool for reuse.
+func putInsertBuilder(b *InsertBuilder) {
+	if b == nil {
+		return
+	}
+	if cap(b.columns) > maxPooledInsertColumns ||
+		cap(b.rows) > maxPooledInsertRows {
+		return
+	}
+	b.exec = nil
+	b.d = nil
+	b.fromSelect = nil
+	for i := range b.rows {
+		b.rows[i] = nil
+	}
+	insertBuilderPool.Put(b)
 }
 
 // SuffixRaw appends a raw SQL suffix to the INSERT statement (e.g., ON CONFLICT ...).

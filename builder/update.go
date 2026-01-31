@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
@@ -42,17 +43,65 @@ type UpdateBuilder struct {
 	batch *batchUpdateBuilder
 }
 
+// updateBuilderPool reduces allocations by reusing UpdateBuilder instances.
+var updateBuilderPool = sync.Pool{
+	New: func() any {
+		return &UpdateBuilder{}
+	},
+}
+
+// maxPooledUpdateSets limits the capacity of sets slice to prevent memory bloat.
+const maxPooledUpdateSets = 64
+
 func newUpdate(exec Executor, d dialect.Dialect, table string) *UpdateBuilder {
 	table = strings.TrimSpace(table)
-	b := &UpdateBuilder{exec: exec, d: d, table: table}
+	b := updateBuilderPool.Get().(*UpdateBuilder)
+	b.exec = exec
+	b.d = d
+	b.table = table
+	if cap(b.sets) > maxPooledUpdateSets {
+		b.sets = nil
+	} else {
+		b.sets = b.sets[:0]
+	}
 	b.where.d = d
-	b.where.items = make([]whereItem, 0, 4)
+	if cap(b.where.items) < 4 {
+		b.where.items = make([]whereItem, 0, 4)
+	} else {
+		b.where.items = b.where.items[:0]
+	}
+	b.err = nil
+	b.includePrimaryKey = false
+	b.includeAuto = false
+	b.includeReadonly = false
+	b.includeZero = false
+	b.allowEmptyWhere = false
+	b.limit = nil
+	b.batch = nil
 	if table != "" && d != nil {
 		if _, err := validateTable(d, table); err != nil {
 			b.err = err
 		}
 	}
 	return b
+}
+
+// putUpdateBuilder returns an UpdateBuilder to the pool for reuse.
+func putUpdateBuilder(b *UpdateBuilder) {
+	if b == nil {
+		return
+	}
+	if cap(b.sets) > maxPooledUpdateSets ||
+		cap(b.where.items) > maxPooledWhereItems {
+		return
+	}
+	b.exec = nil
+	b.d = nil
+	b.batch = nil
+	for i := range b.where.items {
+		b.where.items[i].sub = nil
+	}
+	updateBuilderPool.Put(b)
 }
 
 // AllowEmptyWhere allows UPDATE without a WHERE clause.
