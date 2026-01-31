@@ -49,14 +49,14 @@ func newBatchUpdate(exec Executor, d dialect.Dialect, table string) *batchUpdate
 		keyColumn: "id",
 		where:     whereBuilder{d: d},
 	}
-	
+
 	table = strings.TrimSpace(table)
 	if table != "" && d != nil {
 		if _, err := validateTable(d, table); err != nil {
 			b.err = err
 		}
 	}
-	
+
 	return b
 }
 

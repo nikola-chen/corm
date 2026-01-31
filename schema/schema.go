@@ -272,7 +272,7 @@ func appendIndex(parent []int, i int) []int {
 	if len(parent) == 0 {
 		return []int{i}
 	}
-	
+
 	// For shallow nesting, use stack allocation
 	if len(parent) < 4 {
 		idx := make([]int, len(parent)+1)
@@ -280,7 +280,7 @@ func appendIndex(parent []int, i int) []int {
 		idx[len(parent)] = i
 		return idx
 	}
-	
+
 	// For deeper nesting, use pool
 	bufPtr := indexPool.Get().(*[]int)
 	buf := (*bufPtr)[:0]
@@ -289,10 +289,10 @@ func appendIndex(parent []int, i int) []int {
 	}
 	buf = append(buf, parent...)
 	buf = append(buf, i)
-	
+
 	result := make([]int, len(buf))
 	copy(result, buf)
-	
+
 	if cap(buf) <= maxPooledIndexDepth {
 		*bufPtr = buf
 		indexPool.Put(bufPtr)
@@ -332,7 +332,7 @@ func ToSnake(s string) string {
 	if s == "" {
 		return ""
 	}
-	
+
 	// Check cache first for common identifiers
 	if len(s) <= 32 {
 		if cached, ok := snakeCache.Load(s); ok {
@@ -369,7 +369,7 @@ func ToSnake(s string) string {
 	} else {
 		result = toSnakeUnicode(s)
 	}
-	
+
 	// Cache the result for common identifiers
 	if len(s) <= 32 && len(result) <= 64 {
 		snakeCache.Store(s, result)

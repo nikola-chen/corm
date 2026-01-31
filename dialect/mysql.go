@@ -22,12 +22,12 @@ func (d mysqlDialect) QuoteIdent(ident string) string {
 	if ident == "" {
 		return "``"
 	}
-	
+
 	// Check cache first
 	if cached, ok := quoteCache.Load(ident); ok {
 		return cached.(string)
 	}
-	
+
 	// Fast path: no backticks in ident
 	if strings.IndexByte(ident, '`') == -1 {
 		result := "`" + ident + "`"
@@ -37,7 +37,7 @@ func (d mysqlDialect) QuoteIdent(ident string) string {
 		}
 		return result
 	}
-	
+
 	// Escape backticks - inline replacement to avoid strings.ReplaceAll allocation
 	var result strings.Builder
 	result.Grow(len(ident) + 2)

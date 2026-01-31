@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 )
 
 func TestEngineOpenWithNilDialect(t *testing.T) {
@@ -131,9 +130,9 @@ func TestTxInvalidSavepointName(t *testing.T) {
 	err = e.Transaction(context.Background(), func(tx *Tx) error {
 		// Test with invalid savepoint names
 		invalidNames := []string{
-			"",           // empty
-			"123start",   // starts with digit
-			"a!",         // contains special char
+			"",                       // empty
+			"123start",               // starts with digit
+			"a!",                     // contains special char
 			strings.Repeat("a", 129), // too long
 		}
 
@@ -248,14 +247,14 @@ func TestEngineStats(t *testing.T) {
 	if stats.MaxOpenConnections == 0 {
 		t.Errorf("expected MaxOpenConnections to be set, got 0")
 	}
-	
+
 	// Test that stats are updated after operations
 	ctx := context.Background()
 	err = e.Ping(ctx)
 	if err != nil && !strings.Contains(err.Error(), "connection refused") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	
+
 	// Stats should still be valid
 	stats2 := e.Stats()
 	if stats2.MaxOpenConnections == 0 {

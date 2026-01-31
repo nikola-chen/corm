@@ -44,7 +44,7 @@ func isSimpleIdent(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
-	
+
 	// Check first character
 	c := s[0]
 	if c != '_' && !isASCIILetter(c) {
@@ -54,7 +54,7 @@ func isSimpleIdent(s string) bool {
 		}
 		return false
 	}
-	
+
 	// Check remaining characters
 	for i := 1; i < len(s); i++ {
 		c := s[i]
@@ -118,7 +118,7 @@ func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string
 		end--
 	}
 	ident = ident[start:end]
-	
+
 	if ident == "" {
 		return "", false
 	}
@@ -223,5 +223,3 @@ func normalizeSubqueryOp(op string) (string, bool) {
 		return "", false
 	}
 }
-
-

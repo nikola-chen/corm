@@ -74,6 +74,3 @@ func TestArgBuilderMySQLBackslashEscapeInStringLiteral(t *testing.T) {
 		t.Fatalf("args=%v", ab.args)
 	}
 }
-
-
-

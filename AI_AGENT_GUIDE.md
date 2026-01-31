@@ -61,6 +61,7 @@ q := e.Select().From("users").Where("id = " + userInput)
 ### 3.2 不要把用户输入当作标识符（表名/列名）
 
 表名/列名来自：
+
 - 代码常量（推荐）
 - 结构体 `TableName()`（推荐）
 - 结构体 `db:"col"` tag（推荐）
@@ -83,6 +84,7 @@ q := e.Select().From("users").Where("id = " + userInput)
 ### 3.5 SQL 长度限制
 
 `corm` 对生成的 SQL 语句长度有限制，默认最大长度为 1MB。如果生成的 SQL 超过此限制，会返回错误：
+
 ```
 corm: SQL statement exceeds maximum length of 1MB
 ```
@@ -92,6 +94,7 @@ corm: SQL statement exceeds maximum length of 1MB
 ### 3.6 表名长度限制
 
 `corm` 对表名长度有限制，最大长度为 128 字符（与 SAVEPOINT 名称限制保持一致）。如果表名超过此限制，会返回错误：
+
 ```
 corm: table name exceeds maximum length of 128 characters
 ```
@@ -105,6 +108,7 @@ corm: table name exceeds maximum length of 128 characters
 对于事务中的错误，务必直接返回 error 以触发 rollback，不要吞掉错误。
 
 补充：
+
 - `MustDialect/MustFor/MustGet` 会在 dialect 不支持时直接 panic；仅建议用于启动期/脚本场景，不建议在长期运行服务的请求路径中使用。
 
 ---
@@ -125,9 +129,11 @@ err := e.Select("id", "name").
 ```
 
 说明：
+
 - `Select("col", "t.col", "*")` 的字符串列名仅允许"标识符/通配符"形式（会安全引用）；如需 `COUNT(*) AS cnt` 等表达式列，请使用 `SelectExpr(clause.Alias(clause.Count("id"), "cnt"))` 等显式声明。
 
 聚合表达式示例：
+
 ```go
 type Agg struct {
     Cnt    int     `db:"cnt"`
@@ -144,6 +150,7 @@ err := e.Select().
 ```
 
 常用：
+
 - `From(table)`
 - `FromAs(table, alias)`（安全别名）
 - `SelectExpr(exprs...)`（选择表达式列；例如聚合/别名）
@@ -179,6 +186,7 @@ e.Select("u.name").
 ```
 
 ### 4.2 INSERT
+
 - Use `Insert(table)`.
 - `Columns(...)` + `Values(...)` for standard inserts.
 - `Map(map[string]any)` for map-based inserts.
@@ -188,6 +196,7 @@ e.Select("u.name").
 - `SuffixRaw(sql, args...)` for database-specific suffix (e.g. upsert).
 
 ### 4.3 UPDATE
+
 - Use `Update(table)`.
 - `Set(col, val)` or `Map(map[string]any)`.
 - `Model(interface{})` with `IncludeZero()`, `IncludePrimaryKey()` options.
@@ -198,6 +207,7 @@ e.Select("u.name").
 - Default requires WHERE; use `AllowEmptyWhere()` only when you really want to update all rows.
 
 ### 4.4 DELETE
+
 - Use `Delete(table)`.
 - `Limit(int)`: Adds a LIMIT clause. **Warning**: Only supported by MySQL dialect. Postgres does not support LIMIT on DELETE.
 - Default requires WHERE; use `AllowEmptyWhere()` only when you really want to delete all rows.
@@ -219,6 +229,7 @@ err := e.Transaction(ctx, func(tx *engine.Tx) error {
 ```
 
 原则：
+
 - 事务内使用 `tx`，不要混用 `e`。
 - 返回 error 会触发 rollback；panic 也会 rollback 后继续 panic。
 
@@ -227,6 +238,7 @@ err := e.Transaction(ctx, func(tx *engine.Tx) error {
 ## 6. 扫描（ScanAll/ScanOne）能力边界
 
 `All/One` 支持把结果扫描到：
+
 - `[]Struct` / `[]*Struct`（推荐，性能最佳，支持预计算缓存）
 - `[]map[string]any`（便利，但内存分配略高）
 - `Struct` / `*Struct`
@@ -235,10 +247,12 @@ err := e.Transaction(ctx, func(tx *engine.Tx) error {
 列名匹配规则：按列名（忽略引用符与表前缀）匹配到 `db:"col"`（或默认 snake_case）。
 
 **Strict Mode (严格模式)**:
+
 - `scan.ScanOneStrict(rows, dest)` / `scan.ScanAllStrict(rows, dest)`
 - 当查询结果中存在重复列（归一化后同名，如 `u.id` 和 `o.id`）时，严格模式会直接报错，防止静默覆盖导致的数据错误。
 
 **预分配优化**:
+
 - `scan.ScanAllCap(rows, dest, capacity)`: 如果已知大概行数，可传入 `capacity` 预分配切片容量，减少 `append` 时的扩容分配。
 
 ---
@@ -346,17 +360,17 @@ stats := e.Stats()
 // 示例：监控连接池健康状态
 func MonitorPoolHealth(db *engine.Engine) {
 	stats := db.Stats()
-	
+
 	// 检查连接池是否接近饱和
 	if stats.InUse >= stats.MaxOpenConns*9/10 {
 		log.Printf("WARNING: Connection pool nearly full: %d/%d", stats.InUse, stats.MaxOpenConns)
 	}
-	
+
 	// 检查是否有大量等待
 	if stats.WaitCount > 1000 {
 		log.Printf("WARNING: High connection wait count: %d", stats.WaitCount)
 	}
-	
+
 	// 检查平均等待时间
 	if stats.WaitCount > 0 {
 		avgWait := stats.WaitDuration / time.Duration(stats.WaitCount)
@@ -462,7 +476,7 @@ func Transfer(ctx context.Context, db *engine.Engine, fromID, toID int64, amount
         if err != nil {
             return fmt.Errorf("deduct from account: %w", err)
         }
-        
+
         // 增加转入账户
         _, err = tx.Update("accounts").
             Increment("balance", amount).
@@ -471,7 +485,7 @@ func Transfer(ctx context.Context, db *engine.Engine, fromID, toID int64, amount
         if err != nil {
             return fmt.Errorf("add to account: %w", err)
         }
-        
+
         // 记录交易日志
         _, err = tx.Insert("transfers").
             Map(map[string]any{
@@ -484,7 +498,7 @@ func Transfer(ctx context.Context, db *engine.Engine, fromID, toID int64, amount
         if err != nil {
             return fmt.Errorf("record transfer: %w", err)
         }
-        
+
         return nil
     })
 }
@@ -509,7 +523,7 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
     if err != nil {
         return err
     }
-    
+
     rows, _ := result.RowsAffected()
     if rows == 0 {
         return errors.New("insufficient stock or product not found")
@@ -522,11 +536,22 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v1.2.1`
+- 当前版本：`v1.2.2`
+
+### v1.2.2 更新内容
+
+**代码风格与文档：**
+
+- 对所有 Go 源文件应用 `gofmt` 格式化，统一代码风格
+- 移除 README 中重复的「查询缓存注意事项」章节
+- 修复缓存章节中的不完整文档内容
+- 所有测试通过竞态检测
+- `go vet` 检查无警告
 
 ### v1.2.1 更新内容
 
 **代码质量提升：**
+
 - 全面代码审计，确保无代码错误、遗漏和安全隐患
 - 优化代码扩展性和易用性
 - 提高代码健壮性和复用性
@@ -538,12 +563,14 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 ### v1.2.0 更新内容
 
 **安全修复：**
+
 - 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
 - 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
 - 添加 SQL 语句长度限制（1MB），防止超长 SQL 导致数据库拒绝或内存耗尽
 - 添加表名长度限制（128 字符），与 SAVEPOINT 名称限制保持一致
 
 **性能优化：**
+
 - 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
 - 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey, argBuilder, whereBuilder）
 - 预分配 argBuilder args 切片，减少扩容开销
@@ -551,6 +578,7 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 - 添加 ToSnake 缓存，减少重复 snake_case 转换的内存分配
 
 **API 改进：**
+
 - 增强错误信息，提供更明确的调试指引
 - 优化链式调用 API，更贴近 SQL 原语
 - 添加 `Engine.Stats()` 方法，提供连接池监控功能
@@ -559,14 +587,17 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 ### v1.1.3 更新内容
 
 **安全修复：**
+
 - 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
 - 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
 
 **性能优化：**
+
 - 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
 - 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey）
 - 预分配 argBuilder args 切片，减少扩容开销
 
 **API 改进：**
+
 - 增强错误信息，提供更明确的调试指引
 - 优化链式调用 API，更贴近 SQL 原语

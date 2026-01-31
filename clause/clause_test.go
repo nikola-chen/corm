@@ -70,11 +70,11 @@ func TestIn(t *testing.T) {
 
 func TestEqAndComparisonOperators(t *testing.T) {
 	tests := []struct {
-		name     string
-		fn       func(string, any) clause.Expr
-		column   string
-		value    any
-		wantSQL  string
+		name    string
+		fn      func(string, any) clause.Expr
+		column  string
+		value   any
+		wantSQL string
 	}{
 		{"Eq", clause.Eq, "id", 1, "id = ?"},
 		{"Neq", clause.Neq, "name", "test", "name != ?"},
@@ -178,7 +178,7 @@ func TestEmptyArgs(t *testing.T) {
 	if len(empty) != 0 {
 		t.Errorf("EmptyArgs() length = %v, want 0", len(empty))
 	}
-	
+
 	// Test that it returns the same slice each time by checking capacity and pointer
 	empty2 := clause.EmptyArgs()
 	if cap(empty) != cap(empty2) {
@@ -200,14 +200,14 @@ func TestBuildInEdgeCases(t *testing.T) {
 	if len(expr.Args) != 1000 {
 		t.Errorf("Expected 1000 args, got %d", len(expr.Args))
 	}
-	
+
 	// Test nil slice
 	var nilSlice []int
 	expr2 := clause.In("id", nilSlice)
 	if expr2.SQL != "1=0" {
 		t.Errorf("Expected '1=0' for nil slice, got %s", expr2.SQL)
 	}
-	
+
 	// Test different slice types
 	expr3 := clause.In("id", []int64{1, 2, 3})
 	if len(expr3.Args) != 3 {

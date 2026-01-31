@@ -3,6 +3,7 @@
 `corm` 是一个轻量级且易于使用的 Go 语言 ORM 库。它支持 MySQL 和 PostgreSQL，提供流畅的查询构建器、结构体映射和事务管理功能。
 
 并发说明：
+
 - `Engine` 可以在多个 goroutine 间安全共享。
 - 链式 Query Builder（例如 `e.Select(...).Where(...)`）是可变对象，禁止跨 goroutine 共享复用。
 
@@ -193,6 +194,7 @@ _, err = e.Update("").Models(batch).Exec(ctx)
 ```
 
 安全提示：
+
 - `Update(table)` 默认要求 WHERE 非空（防止误更新整表）。
 - 如果你确实要更新全表数据，需要显式调用 `AllowEmptyWhere()`。
 
@@ -205,6 +207,7 @@ _, err := e.Delete("users").
 ```
 
 安全提示：
+
 - `Delete(table)` 默认要求 WHERE 非空（防止误删整表）。
 - 如果你确实要删除全表数据，需要显式调用 `AllowEmptyWhere()`：
 
@@ -222,7 +225,7 @@ err := e.Transaction(ctx, func(tx *engine.Tx) error {
 	if _, err := tx.Insert("users").Values("Dave", 40).Exec(ctx); err != nil {
 		return err
 	}
-	
+
 	if _, err := tx.Update("accounts").Set("balance", 100).Where("user_id = ?", 1).Exec(ctx); err != nil {
 		return err
 	}
@@ -309,21 +312,21 @@ func main() {
 
 	// 4. 复杂查询构建
 	// 目标 SQL:
-	// SELECT u.id, u.name, count(o.id) as order_count 
-	// FROM users AS u 
-	// LEFT JOIN orders o ON o.user_id = u.id 
+	// SELECT u.id, u.name, count(o.id) as order_count
+	// FROM users AS u
+	// LEFT JOIN orders o ON o.user_id = u.id
 	// WHERE u.status = 1 AND u.age > 18 AND u.id IN (1,2,3,4,5)
-	// GROUP BY u.id 
-	// HAVING order_count >= 0 
-	// ORDER BY u.age DESC 
+	// GROUP BY u.id
+	// HAVING order_count >= 0
+	// ORDER BY u.age DESC
 	// LIMIT 10 OFFSET 0
-	
+
 	type UserStat struct {
 		ID         int    `db:"id"`
 		Name       string `db:"name"`
 		OrderCount int    `db:"order_count"`
 	}
-	
+
 	var stats []UserStat
 	err = e.Select("u.id", "u.name").
 		SelectExpr(clause.Raw("count(o.id) as order_count")).
@@ -338,18 +341,18 @@ func main() {
 		Limit(10).
 		Offset(0).
 		All(ctx, &stats)
-		
+
 	if err != nil {
 		fmt.Printf("Query failed: %v\n", err)
 	}
 
 	// 5. 更新操作 (Map / Model)
-	
+
 	// 方式 A: 通过结构体更新 (自动推导表名)
 	// 仅更新非零值字段 (因为定义了 omitempty)，且 WHERE 条件使用主键
 	updateUser := User{ID: newID, Name: "John Updated"}
 	e.Update("").
-		Model(&updateUser). 
+		Model(&updateUser).
 		Where("id = ?", newID).
 		Exec(ctx)
 
@@ -386,12 +389,12 @@ func main() {
 	// 6. 事务处理
 	err = e.Transaction(ctx, func(tx *engine.Tx) error {
 		// 注意：事务内部必须使用 tx 对象，而不是 e
-		
+
 		// 6.1 删除操作
 		if _, err := tx.Delete("users").Where("status = ?", 0).Exec(ctx); err != nil {
 			return err // 返回 error 将触发 Rollback
 		}
-		
+
 		// 6.2 插入日志
 		if _, err := tx.Insert("logs").Columns("msg").Values("Cleanup done").Exec(ctx); err != nil {
 			return err // 返回 error 将触发 Rollback
@@ -399,7 +402,7 @@ func main() {
 
 		return nil // 返回 nil 将触发 Commit
 	})
-	
+
 	if err != nil {
 		fmt.Printf("Transaction failed: %v\n", err)
 	}
@@ -409,16 +412,16 @@ func main() {
 ## 进阶用法
 
 ### SQL 日志
- 
- 通过 `WithConfig` 开启日志：
- 
- ```go
- engine.Open("mysql", dsn, engine.WithConfig(engine.Config{
-     LogSQL:    true,
-     LogArgs:   true, // 开启参数日志（默认脱敏，防止敏感信息泄露）
-     SlowQuery: 200 * time.Millisecond,
- }))
- ```
+
+通过 `WithConfig` 开启日志：
+
+```go
+engine.Open("mysql", dsn, engine.WithConfig(engine.Config{
+    LogSQL:    true,
+    LogArgs:   true, // 开启参数日志（默认脱敏，防止敏感信息泄露）
+    SlowQuery: 200 * time.Millisecond,
+}))
+```
 
 ### 原生 SQL
 
@@ -431,10 +434,12 @@ e.Select().
 ```
 
 安全提示：
+
 - 这些接口都应视为“危险入口”（除非 SQL 来自受信任常量/白名单）：`Where`、`JoinRaw`、`Having`、`OrderByRaw`、`SuffixRaw`、`clause.Raw`
 - 尽量优先使用结构化/安全默认的接口：`WhereEq`、`WhereIn`、`OrderByAsc/Desc`、`Join/JoinAs`
 
 注意（PostgreSQL）：
+
 - 当使用“字符串 SQL + args”的片段（例如 `Where("x = ?", v)`）时，片段内占位符统一使用 `?`。
 - 避免在同一段参数化 SQL 片段中混用 JSONB 的 `?/?|/?&` 操作符与 `?` 占位符；优先使用 `jsonb_exists/jsonb_exists_any/jsonb_exists_all` 函数写法。
 
@@ -466,6 +471,7 @@ sqlStr, args, err = qb.Select("id", "name").
 `corm` 也支持一系列更高级的 SQL 能力（逻辑表达式、JOIN、子查询、聚合、UNION、DISTINCT 等）。
 
 安全提示：
+
 - `clause.Raw(...)`、`JoinRaw(...)`、`OrderByRaw(...)`、`SuffixRaw(...)` 接受原生 SQL，禁止拼接任何不可信用户输入。
 
 ### 逻辑运算符
@@ -481,6 +487,7 @@ e.Select().From("users").
 ```
 
 ### JOIN
+
 支持结构化 JOIN（`Join/LeftJoin/RightJoin/InnerJoin/FullJoin/CrossJoin`）以及原生 JOIN（`JoinRaw`）。
 推荐用法（带参数绑定，使用 `FromAs` + `*JoinAs`）：
 
@@ -593,9 +600,20 @@ e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 
 ## 更新日志
 
+### v1.2.2
+
+**代码风格与文档：**
+
+- 对所有 Go 源文件应用 `gofmt` 格式化，统一代码风格
+- 移除 README 中重复的「查询缓存注意事项」章节
+- 修复缓存章节中的不完整文档内容
+- 所有测试通过竞态检测（`go test -race ./...`）
+- `go vet` 检查无警告
+
 ### v1.2.1
 
 **代码质量提升：**
+
 - 全面代码审计，确保无代码错误、遗漏和安全隐患
 - 优化代码扩展性和易用性
 - 提高代码健壮性和复用性
@@ -607,12 +625,14 @@ e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 ### v1.2.0
 
 **安全修复：**
+
 - 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
 - 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
 - 添加 SQL 语句长度限制（1MB），防止超长 SQL 导致数据库拒绝或内存耗尽
 - 添加表名长度限制（128 字符），与 SAVEPOINT 名称限制保持一致
 
 **性能优化：**
+
 - 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
 - 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey, argBuilder, whereBuilder）
 - 预分配 argBuilder args 切片，减少扩容开销
@@ -620,6 +640,7 @@ e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 - 添加 ToSnake 缓存，减少重复 snake_case 转换的内存分配
 
 **API 改进：**
+
 - 增强错误信息，提供更明确的调试指引
 - 优化链式调用 API，更贴近 SQL 原语
 - 添加 `Engine.Stats()` 方法，提供连接池监控功能
@@ -628,15 +649,18 @@ e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 ### v1.1.3
 
 **安全修复：**
+
 - 修复 SAVEPOINT 名称验证，防止潜在的 SQL 注入风险
 - 加强 HAVING 子句空表达式检查，返回明确错误而非静默跳过
 
 **性能优化：**
+
 - 抽取 `NormalizeColumn` 到 `internal` 包，消除代码重复
 - 使用 `sync.Pool` 优化内存分配（ToSnake, colsKey）
 - 预分配 argBuilder args 切片，减少扩容开销
 
 **API 改进：**
+
 - 增强错误信息，提供更明确的调试指引
 - 优化链式调用 API，更贴近 SQL 原语
 

@@ -29,12 +29,12 @@ func (d postgresDialect) QuoteIdent(ident string) string {
 	if ident == "" {
 		return `""`
 	}
-	
+
 	// Check cache first
 	if cached, ok := pgQuoteCache.Load(ident); ok {
 		return cached.(string)
 	}
-	
+
 	// Fast path: no double quotes in ident
 	if strings.IndexByte(ident, '"') == -1 {
 		result := `"` + ident + `"`
@@ -44,7 +44,7 @@ func (d postgresDialect) QuoteIdent(ident string) string {
 		}
 		return result
 	}
-	
+
 	// Escape double quotes - inline replacement to avoid strings.ReplaceAll allocation
 	var result strings.Builder
 	result.Grow(len(ident) + 2)

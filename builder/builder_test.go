@@ -504,95 +504,95 @@ func TestEmptyAndWhitespaceInputs(t *testing.T) {
 }
 
 func TestInvalidIdentifiers(t *testing.T) {
-invalidIdentifiers := []string{
-"table with spaces",
-"table-with-dashes",
-"table/with/slashes",
-"table;with;semicolons",
-"table\"with\"quotes",
-"table`with`backticks",
-"123startingwithnumber",
-"table.with.dots", // This should actually work as table.column format
-}
+	invalidIdentifiers := []string{
+		"table with spaces",
+		"table-with-dashes",
+		"table/with/slashes",
+		"table;with;semicolons",
+		"table\"with\"quotes",
+		"table`with`backticks",
+		"123startingwithnumber",
+		"table.with.dots", // This should actually work as table.column format
+	}
 
-for _, ident := range invalidIdentifiers {
-t.Run("From_"+ident, func(t *testing.T) {
-_, _, err := mysqlQB().Select("*").From(ident).SQL()
-// Skip the dot case as it's valid table.column format
-if strings.Contains(ident, ".") && !strings.HasPrefix(ident, ".") && !strings.HasSuffix(ident, ".") {
-if err != nil {
-t.Logf("Expected table.column format to work, but got error: %v", err)
-}
-return
-}
-if err == nil {
-t.Errorf("Expected error for invalid identifier: %s", ident)
-}
-})
-}
+	for _, ident := range invalidIdentifiers {
+		t.Run("From_"+ident, func(t *testing.T) {
+			_, _, err := mysqlQB().Select("*").From(ident).SQL()
+			// Skip the dot case as it's valid table.column format
+			if strings.Contains(ident, ".") && !strings.HasPrefix(ident, ".") && !strings.HasSuffix(ident, ".") {
+				if err != nil {
+					t.Logf("Expected table.column format to work, but got error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Errorf("Expected error for invalid identifier: %s", ident)
+			}
+		})
+	}
 }
 
 func TestSQLInjectionAttempts(t *testing.T) {
-// Test that dangerous inputs are properly handled
-dangerousInputs := []string{
-"users; DROP TABLE users; --",
-"users' OR '1'='1",
-"users\" OR \"1\"=\"1",
-"users` OR `1`=`1",
-"users/* comment */",
-"users-- comment",
-}
+	// Test that dangerous inputs are properly handled
+	dangerousInputs := []string{
+		"users; DROP TABLE users; --",
+		"users' OR '1'='1",
+		"users\" OR \"1\"=\"1",
+		"users` OR `1`=`1",
+		"users/* comment */",
+		"users-- comment",
+	}
 
-for _, input := range dangerousInputs {
-t.Run("From_"+input, func(t *testing.T) {
-_, _, err := mysqlQB().Select("*").From(input).SQL()
-if err == nil {
-t.Errorf("Expected error for dangerous input: %s", input)
-}
-})
-}
+	for _, input := range dangerousInputs {
+		t.Run("From_"+input, func(t *testing.T) {
+			_, _, err := mysqlQB().Select("*").From(input).SQL()
+			if err == nil {
+				t.Errorf("Expected error for dangerous input: %s", input)
+			}
+		})
+	}
 }
 
 func TestMaxSQLLengthExceeded(t *testing.T) {
-// This test is tricky because we can't easily trigger the SQL length limit
-// in normal usage, but we can test the validation logic indirectly
-// by creating a very complex query
+	// This test is tricky because we can't easily trigger the SQL length limit
+	// in normal usage, but we can test the validation logic indirectly
+	// by creating a very complex query
 
-q := mysqlQB().Select("*").From("users")
+	q := mysqlQB().Select("*").From("users")
 
-// Add many WHERE conditions
-for i := 0; i < 100; i++ {
-q = q.Where("field%d = ?", i)
-}
+	// Add many WHERE conditions
+	for i := 0; i < 100; i++ {
+		q = q.Where("field%d = ?", i)
+	}
 
-// Add many ORDER BY clauses
-for i := 0; i < 50; i++ {
-q = q.OrderBy("field"+strconv.Itoa(i), "ASC")
-}
+	// Add many ORDER BY clauses
+	for i := 0; i < 50; i++ {
+		q = q.OrderBy("field"+strconv.Itoa(i), "ASC")
+	}
 
-// This should still work, but if we had a much larger query it might hit limits
-_, _, err := q.SQL()
-if err != nil {
-// If we get an error about SQL length, that's expected behavior
-if strings.Contains(err.Error(), "exceeds maximum length") {
-t.Logf("SQL length limit working as expected: %v", err)
-} else {
-t.Errorf("Unexpected error: %v", err)
-}
-}
+	// This should still work, but if we had a much larger query it might hit limits
+	_, _, err := q.SQL()
+	if err != nil {
+		// If we get an error about SQL length, that's expected behavior
+		if strings.Contains(err.Error(), "exceeds maximum length") {
+			t.Logf("SQL length limit working as expected: %v", err)
+		} else {
+			t.Errorf("Unexpected error: %v", err)
+		}
+	}
 }
 
 func TestNilDialectHandling(t *testing.T) {
-// Test that nil dialect is handled gracefully
-api := &builder.API{}
+	// Test that nil dialect is handled gracefully
+	api := &builder.API{}
 
-defer func() {
-if r := recover(); r != nil {
-t.Errorf("Expected no panic with nil dialect, but got: %v", r)
-}
-}()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("Expected no panic with nil dialect, but got: %v", r)
+		}
+	}()
 
-_, _, err := api.Select("*").From("users").SQL()
+	_, _, err := api.Select("*").From("users").SQL()
 	if err == nil {
 		t.Errorf("Expected error with nil dialect")
 	}

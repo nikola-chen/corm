@@ -3,6 +3,7 @@
 `corm` is a lightweight and easy-to-use ORM library for Go. It supports MySQL and PostgreSQL, providing a fluent Query Builder, struct mapping, and transaction management.
 
 Concurrency note:
+
 - `Engine` is safe to share across goroutines.
 - Query builders (e.g. `e.Select(...).Where(...)`) are mutable and must not be shared across goroutines.
 
@@ -181,6 +182,7 @@ _, err = e.Update("").Models(batch).Exec(ctx)
 ```
 
 Safety note:
+
 - `Update(table)` requires a non-empty WHERE by default (to prevent updating the whole table).
 - If you really want to update all rows, use `AllowEmptyWhere()` explicitly.
 
@@ -193,6 +195,7 @@ _, err := e.Delete("users").
 ```
 
 Safety note:
+
 - `Delete(table)` requires a non-empty WHERE by default (to prevent deleting the whole table).
 - If you really want to delete all rows, use `AllowEmptyWhere()` explicitly:
 
@@ -210,7 +213,7 @@ err := e.Transaction(ctx, func(tx *engine.Tx) error {
 	if _, err := tx.Insert("users").Values("Dave", 40).Exec(ctx); err != nil {
 		return err
 	}
-	
+
 	if _, err := tx.Update("accounts").Set("balance", 100).Where("user_id = ?", 1).Exec(ctx); err != nil {
 		return err
 	}
@@ -296,21 +299,21 @@ func main() {
 	e.Insert("users").Columns("name", "email", "age", "status").Maps(rows).Exec(ctx)
 
 	// 4. Complex Select Query
-	// SELECT u.id, u.name, count(o.id) as order_count 
-	// FROM users AS u 
-	// LEFT JOIN orders o ON o.user_id = u.id 
-	// WHERE u.status = 1 AND u.age > 18 
-	// GROUP BY u.id 
-	// HAVING order_count >= 0 
-	// ORDER BY u.age DESC 
+	// SELECT u.id, u.name, count(o.id) as order_count
+	// FROM users AS u
+	// LEFT JOIN orders o ON o.user_id = u.id
+	// WHERE u.status = 1 AND u.age > 18
+	// GROUP BY u.id
+	// HAVING order_count >= 0
+	// ORDER BY u.age DESC
 	// LIMIT 10 OFFSET 0
-	
+
 	type UserStat struct {
 		ID         int    `db:"id"`
 		Name       string `db:"name"`
 		OrderCount int    `db:"order_count"`
 	}
-	
+
 	var stats []UserStat
 	err = e.Select("u.id", "u.name").
 		SelectExpr(clause.Raw("count(o.id) as order_count")).
@@ -325,7 +328,7 @@ func main() {
 		Limit(10).
 		Offset(0).
 		All(ctx, &stats)
-		
+
 	if err != nil {
 		fmt.Printf("Query failed: %v\n", err)
 	}
@@ -371,15 +374,15 @@ func main() {
 	// 6. Transaction
 	err = e.Transaction(ctx, func(tx *engine.Tx) error {
 		// Use 'tx' for all operations inside the transaction
-		
+
 		// 6.1 Lock row (if needed)
 		// _ = tx.Select("*").From("users").Where("id = ?", newID).ForUpdate().One(ctx, &User{})
-		
+
 		// 6.2 Perform updates
 		if _, err := tx.Delete("users").Where("status = ?", 0).Exec(ctx); err != nil {
 			return err // Rollback
 		}
-		
+
 		// 6.3 Insert log
 		if _, err := tx.Insert("logs").Columns("msg").Values("Cleanup done").Exec(ctx); err != nil {
 			return err // Rollback
@@ -387,7 +390,7 @@ func main() {
 
 		return nil // Commit
 	})
-	
+
 	if err != nil {
 		fmt.Printf("Transaction failed: %v\n", err)
 	}
@@ -397,16 +400,16 @@ func main() {
 ## Advanced Usage
 
 ### SQL Logging
- 
- Enable logging via `WithConfig`:
- 
- ```go
- engine.Open("mysql", dsn, engine.WithConfig(engine.Config{
-     LogSQL:    true,
-     LogArgs:   true, // Enable argument logging (redacted by default for security)
-     SlowQuery: 200 * time.Millisecond,
- }))
- ```
+
+Enable logging via `WithConfig`:
+
+```go
+engine.Open("mysql", dsn, engine.WithConfig(engine.Config{
+    LogSQL:    true,
+    LogArgs:   true, // Enable argument logging (redacted by default for security)
+    SlowQuery: 200 * time.Millisecond,
+}))
+```
 
 ### Raw SQL
 
@@ -419,10 +422,12 @@ e.Select().
 ```
 
 Safety note:
+
 - Treat these as dangerous entry points unless the SQL is a trusted constant/whitelist: `Where`, `JoinRaw`, `Having`, `OrderByRaw`, `SuffixRaw`, `clause.Raw`.
 - Prefer structured APIs like `WhereEq`, `WhereIn`, `OrderByAsc/Desc`, and `Join/JoinAs` whenever possible.
 
 Note (PostgreSQL):
+
 - When using string-based SQL fragments with args (e.g. `Where("x = ?", v)`), use `?` as the placeholder in the fragment.
 - Avoid mixing JSONB operators `?/?|/?&` with `?` placeholders in the same parameterized fragment. Prefer `jsonb_exists/jsonb_exists_any/jsonb_exists_all` functions.
 
@@ -460,6 +465,7 @@ sqlStr, args, err = qb.Select("id", "name").
 `corm` now supports a wide range of advanced SQL features.
 
 Security note:
+
 - `clause.Raw(...)`, `JoinRaw(...)`, `OrderByRaw(...)`, `SuffixRaw(...)` accept raw SQL. Never pass untrusted user input into these APIs.
 
 ### Logical Operators
@@ -621,9 +627,20 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v1.2.2
+
+**Code Style and Documentation:**
+
+- Applied `gofmt` formatting to all Go source files for consistent code style
+- Removed duplicate 'Query Caching Considerations' section from README
+- Fixed incomplete documentation text in caching section
+- All tests passing with race detection (`go test -race ./...`)
+- `go vet` clean with no warnings
+
 ### v1.2.1
 
 **Code Quality Improvements:**
+
 - Comprehensive code audit to ensure no errors, omissions, or security vulnerabilities
 - Enhanced code extensibility and usability
 - Improved code robustness and reusability
@@ -635,12 +652,14 @@ err := e.Select("id", "name").
 ### v1.2.0
 
 **Security Fixes:**
+
 - Fixed SAVEPOINT name validation to prevent potential SQL injection
 - Enhanced HAVING clause validation to return explicit errors instead of silently skipping empty expressions
 - Added SQL statement length limit (1MB) to prevent excessively long SQL from causing database rejection or memory exhaustion
 - Added table name length limit (128 characters) to maintain consistency with SAVEPOINT name limits
 
 **Performance Optimizations:**
+
 - Extracted `NormalizeColumn` to `internal` package to eliminate code duplication
 - Optimized memory allocation using `sync.Pool` (ToSnake, colsKey, argBuilder, whereBuilder)
 - Pre-allocated argBuilder args slice to reduce expansion overhead
@@ -648,6 +667,7 @@ err := e.Select("id", "name").
 - Added ToSnake caching to reduce memory allocations for repeated snake_case conversions
 
 **API Improvements:**
+
 - Enhanced error messages with clearer debugging guidance
 - Optimized chain API to be closer to SQL primitives
 - Added `Engine.Stats()` method for connection pool monitoring
@@ -656,15 +676,18 @@ err := e.Select("id", "name").
 ### v1.1.3
 
 **Security Fixes:**
+
 - Fixed SAVEPOINT name validation to prevent potential SQL injection
 - Enhanced HAVING clause validation to return explicit errors instead of silently skipping empty expressions
 
 **Performance Optimizations:**
+
 - Extracted `NormalizeColumn` to `internal` package to eliminate code duplication
 - Optimized memory allocation using `sync.Pool` (ToSnake, colsKey)
 - Pre-allocated argBuilder args slice to reduce expansion overhead
 
 **API Improvements:**
+
 - Enhanced error messages with clearer debugging guidance
 - Optimized chain API to be closer to SQL primitives
 
@@ -677,25 +700,13 @@ err := e.Select("id", "name").
 ## License
 
 MIT
-## Query Caching Considerations
-
-Query caching is a complex feature that requires careful consideration of:
-
-1. **Cache Invalidation**: When to invalidate cached results after write operations
-2. **Memory Management**: How to limit memory usage and implement eviction policies  
-3. **Result Serialization**: How to serialize and deserialize query results efficiently
-4. **Concurrency**: How to handle concurrent access to cached data
-
-Due to these complexities, query caching is best implemented at the application level rather than in the ORM layer. The ORM provides all the necessary hooks (SQL logging, custom executors) for applications to implement their own caching strategies.
-
-For simple use cases, consider using Go's built-in  or third-party caching libraries like  or  to cache scanned results rather than raw .
 
 ## Query Caching Considerations
 
 Query caching is a complex feature that requires careful consideration of:
 
 1. **Cache Invalidation**: When to invalidate cached results after write operations
-2. **Memory Management**: How to limit memory usage and implement eviction policies  
+2. **Memory Management**: How to limit memory usage and implement eviction policies
 3. **Result Serialization**: How to serialize and deserialize query results efficiently
 4. **Concurrency**: How to handle concurrent access to cached data
 
