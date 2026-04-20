@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 )
 
 var postgresPlaceholders = [...]string{
@@ -12,40 +11,50 @@ var postgresPlaceholders = [...]string{
 	"$11", "$12", "$13", "$14", "$15", "$16", "$17", "$18", "$19", "$20",
 }
 
-var pgQuoteCache sync.Map
-var pgQuoteCacheCount atomic.Int64
 const maxPgQuoteCacheSize = 2048
 
-type postgresDialect struct{}
+type postgresDialect struct {
+	mu       sync.RWMutex
+	cache    map[string]string
+	cacheLen int
+}
 
-func (d postgresDialect) Name() string { return "postgres" }
+func (d *postgresDialect) Name() string { return "postgres" }
 
-func (d postgresDialect) Placeholder(n int) string {
+func (d *postgresDialect) Placeholder(n int) string {
 	if n > 0 && n <= 20 {
 		return postgresPlaceholders[n-1]
 	}
 	return "$" + strconv.Itoa(n)
 }
 
-func (d postgresDialect) QuoteIdent(ident string) string {
+func (d *postgresDialect) QuoteIdent(ident string) string {
 	if ident == "" {
 		return `""`
-	}
-
-	// Check cache first
-	if cached, ok := pgQuoteCache.Load(ident); ok {
-		return cached.(string)
 	}
 
 	// Fast path: no double quotes in ident
 	if strings.IndexByte(ident, '"') == -1 {
 		result := `"` + ident + `"`
 		if len(ident) <= 64 {
-			if pgQuoteCacheCount.Load() < maxPgQuoteCacheSize {
-				if _, loaded := pgQuoteCache.LoadOrStore(ident, result); !loaded {
-					pgQuoteCacheCount.Add(1)
+			d.mu.RLock()
+			if v, ok := d.cache[ident]; ok {
+				d.mu.RUnlock()
+				return v
+			}
+			d.mu.RUnlock()
+
+			d.mu.Lock()
+			if d.cache == nil {
+				d.cache = make(map[string]string, 256)
+			}
+			if d.cacheLen < maxPgQuoteCacheSize {
+				if _, ok := d.cache[ident]; !ok {
+					d.cache[ident] = result
+					d.cacheLen++
 				}
 			}
+			d.mu.Unlock()
 		}
 		return result
 	}
@@ -66,9 +75,9 @@ func (d postgresDialect) QuoteIdent(ident string) string {
 	return result.String()
 }
 
-func (d postgresDialect) SupportsReturning() bool { return true }
+func (d *postgresDialect) SupportsReturning() bool { return true }
 
 func init() {
-	Register("postgres", postgresDialect{})
-	Register("postgresql", postgresDialect{})
+	Register("postgres", &postgresDialect{})
+	Register("postgresql", &postgresDialect{})
 }

@@ -120,21 +120,19 @@ func defaultArgFormatter(v any) string {
 }
 
 func (e *Engine) executor() builder.Executor {
-	if e.logger == nil {
-		return e.db
-	}
-	if !e.cfg.LogSQL && e.cfg.SlowQuery <= 0 {
-		return e.db
-	}
-	return &loggingExecutor{inner: e.db, logger: e.logger, cfg: e.cfg}
+	return wrapExecutor(e.db, e.logger, e.cfg)
 }
 
 func (t *Tx) executor() builder.Executor {
-	if t.logger == nil {
-		return t.tx
+	return wrapExecutor(t.tx, t.logger, t.cfg)
+}
+
+func wrapExecutor(inner builder.Executor, logger Logger, cfg Config) builder.Executor {
+	if logger == nil {
+		return inner
 	}
-	if !t.cfg.LogSQL && t.cfg.SlowQuery <= 0 {
-		return t.tx
+	if !cfg.LogSQL && cfg.SlowQuery <= 0 {
+		return inner
 	}
-	return &loggingExecutor{inner: t.tx, logger: t.logger, cfg: t.cfg}
+	return &loggingExecutor{inner: inner, logger: logger, cfg: cfg}
 }

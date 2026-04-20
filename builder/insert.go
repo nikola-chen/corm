@@ -26,6 +26,7 @@ type InsertBuilder struct {
 	includeAuto       bool
 	includeReadonly   bool
 	includeZero       bool
+	insertIgnore      bool
 
 	fromSelect *SelectBuilder
 	suffix     []clause.Expr
@@ -81,6 +82,26 @@ func (b *InsertBuilder) IncludeReadonly() *InsertBuilder {
 // IncludeZero includes zero-value fields in the INSERT statement.
 func (b *InsertBuilder) IncludeZero() *InsertBuilder {
 	b.includeZero = true
+	return b
+}
+
+// InsertIgnore adds INSERT IGNORE syntax for MySQL.
+// It generates "INSERT IGNORE INTO ..." which silently skips rows that would
+// cause duplicate key errors. This method is only supported by the MySQL dialect.
+// For PostgreSQL, use OnConflict().DoNothing() instead.
+func (b *InsertBuilder) InsertIgnore() *InsertBuilder {
+	if b.err != nil {
+		return b
+	}
+	if b.d == nil {
+		b.err = errors.New("corm: nil dialect")
+		return b
+	}
+	if b.d.Name() != "mysql" {
+		b.err = errors.New("corm: InsertIgnore only supported by MySQL; use OnConflict().DoNothing() for PostgreSQL")
+		return b
+	}
+	b.insertIgnore = true
 	return b
 }
 
@@ -332,7 +353,11 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 		return errors.New("corm: missing columns for insert")
 	}
 
-	buf.WriteString("INSERT INTO ")
+	buf.WriteString("INSERT ")
+	if b.insertIgnore {
+		buf.WriteString("IGNORE ")
+	}
+	buf.WriteString("INTO ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)
 	if !ok {
 		return errors.New("corm: invalid table identifier")

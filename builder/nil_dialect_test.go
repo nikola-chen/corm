@@ -13,8 +13,8 @@ func TestNilDialectDoesNotPanic(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = builder.Insert(nil, nil, "users").Columns("id").Values(1).SQL()
-	_, _, _ = builder.Update(nil, nil, "users").Set("id", 1).Where("id = ?", 1).SQL()
-	_, _, _ = builder.Delete(nil, nil, "users").WhereEq("id", 1).SQL()
-	_, _, _ = builder.Select(nil, nil, "id").From("users").WhereEq("id", 1).SQL()
+	_, _, _ = builder.NewAPI(nil, nil).Insert("users").Columns("id").Values(1).SQL()
+	_, _, _ = builder.NewAPI(nil, nil).Update("users").Set("id", 1).Where("id = ?", 1).SQL()
+	_, _, _ = builder.NewAPI(nil, nil).Delete("users").WhereEq("id", 1).SQL()
+	_, _, _ = builder.NewAPI(nil, nil).Select("id").From("users").WhereEq("id", 1).SQL()
 }

@@ -106,23 +106,23 @@ func (t *Tx) release(ctx context.Context, name string) error {
 }
 
 func (t *Tx) Select(columns ...string) *builder.SelectBuilder {
-	return builder.Select(t.executor(), t.dialect, columns...)
+	return builder.NewAPI(t.dialect, t.executor()).Select(columns...)
 }
 
 func (t *Tx) SelectExpr(columns ...clause.Expr) *builder.SelectBuilder {
-	return builder.Select(t.executor(), t.dialect).SelectExpr(columns...)
+	return builder.NewAPI(t.dialect, t.executor()).Select().SelectExpr(columns...)
 }
 
 func (t *Tx) Insert(table string) *builder.InsertBuilder {
-	return builder.Insert(t.executor(), t.dialect, table)
+	return builder.NewAPI(t.dialect, t.executor()).Insert(table)
 }
 
 func (t *Tx) Update(table string) *builder.UpdateBuilder {
-	return builder.Update(t.executor(), t.dialect, table)
+	return builder.NewAPI(t.dialect, t.executor()).Update(table)
 }
 
 func (t *Tx) Delete(table string) *builder.DeleteBuilder {
-	return builder.Delete(t.executor(), t.dialect, table)
+	return builder.NewAPI(t.dialect, t.executor()).Delete(table)
 }
 
 // RawExec executes a raw SQL query and returns the result.

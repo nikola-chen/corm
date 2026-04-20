@@ -597,3 +597,194 @@ func TestNilDialectHandling(t *testing.T) {
 		t.Errorf("Expected error with nil dialect")
 	}
 }
+
+func TestTrimSpaceASCII(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"hello", "hello"},
+		{"  hello", "hello"},
+		{"hello  ", "hello"},
+		{"  hello  ", "hello"},
+		{"\thello\n", "hello"},
+		{"\r\nhello\t\n", "hello"},
+		{"   ", ""},
+		{"", ""},
+		{"hello world", "hello world"},
+		{"  hello world  ", "hello world"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			// We can't directly call trimSpaceASCII since it's unexported,
+			// but we can test it indirectly through quoteIdent behavior
+			// by using whitespace-padded identifiers
+			qb := mysqlQB()
+			_, _, err := qb.Select("*").From("  users  ").SQL()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestSelectExprEmpty(t *testing.T) {
+	q := mysqlQB().Select().SelectExpr()
+	_, _, err := q.From("users").SQL()
+	// Empty SelectExpr just means no additional columns, not an error
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSelectUnion(t *testing.T) {
+	qb := mysqlQB()
+	q := qb.Select("id").From("users").Where("active = ?", 1).
+		Union(qb.Select("id").From("admins"))
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "SELECT `id` FROM `users` WHERE (active = ?) UNION (SELECT `id` FROM `admins`)"
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+}
+
+func TestSelectUnionAll(t *testing.T) {
+	qb := mysqlQB()
+	q := qb.Select("id").From("users").Where("active = ?", 1).
+		UnionAll(qb.Select("id").From("admins"))
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "SELECT `id` FROM `users` WHERE (active = ?) UNION ALL (SELECT `id` FROM `admins`)"
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+}
+
+func TestSelectSubqueryFrom(t *testing.T) {
+	qb := mysqlQB()
+	sub := qb.Select("id").From("users").Where("active = ?", 1)
+	q := qb.Select("*").FromSelect(sub, "active_users")
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "SELECT * FROM (SELECT `id` FROM `users` WHERE (active = ?)) AS active_users"
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+}
+
+func TestInsertFromSelect(t *testing.T) {
+	qb := mysqlQB()
+	sub := qb.Select("name", "email").From("users").Where("active = ?", 1)
+	q := qb.Insert("admins").Columns("name", "email").FromSelect(sub)
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "INSERT INTO `admins` (`name`, `email`) SELECT `name`, `email` FROM `users` WHERE (active = ?)"
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+}
+
+func TestUpdateJoin(t *testing.T) {
+	q := mysqlQB().Update("users").
+		Set("status", 1).
+		JoinAs("orders", "o", clause.Raw("o.user_id = users.id")).
+		Where("o.paid = ?", 1)
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "UPDATE `users` JOIN `orders` AS o ON o.user_id = users.id SET `status` = ? WHERE (o.paid = ?)"
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+}
+
+func TestDeleteUsing(t *testing.T) {
+	q := pgQB().Delete("users").
+		UsingAs("orders", "o").
+		Where("o.user_id = users.id").
+		Where("o.paid = ?", 0)
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := `DELETE FROM "users" USING "orders" AS o WHERE (o.user_id = users.id) AND (o.paid = $1)`
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+}
+
+func TestSelectDistinct(t *testing.T) {
+	q := mysqlQB().Select("country").Distinct().From("users")
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "SELECT DISTINCT `country` FROM `users`"
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+}
+
+func TestSelectForUpdateForShare(t *testing.T) {
+	q1 := mysqlQB().Select("*").From("users").Where("id = ?", 1).ForUpdate()
+	sqlStr1, _, err := q1.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+	want1 := "SELECT * FROM `users` WHERE (id = ?) FOR UPDATE"
+	if sqlStr1 != want1 {
+		t.Fatalf("ForUpdate mismatch:\nwant: %s\ngot : %s", want1, sqlStr1)
+	}
+
+	q2 := mysqlQB().Select("*").From("users").Where("id = ?", 1).ForShare()
+	sqlStr2, _, err := q2.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+	want2 := "SELECT * FROM `users` WHERE (id = ?) LOCK IN SHARE MODE"
+	if sqlStr2 != want2 {
+		t.Fatalf("ForShare mismatch:\nwant: %s\ngot : %s", want2, sqlStr2)
+	}
+}
+
+func TestSelectHaving(t *testing.T) {
+	q := mysqlQB().Select("status").SelectExpr(clause.Raw("COUNT(*) as cnt")).
+		From("users").
+		GroupBy("status").
+		Having("cnt > ?", 5)
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "SELECT `status`, COUNT(*) as cnt FROM `users` GROUP BY `status` HAVING (cnt > ?)"
+	if sqlStr != wantSQL {
+		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	}
+}

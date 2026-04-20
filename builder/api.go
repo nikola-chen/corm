@@ -62,7 +62,7 @@ func (a *API) Select(columns ...string) *SelectBuilder {
 	if a == nil {
 		return &SelectBuilder{err: errors.New("corm: nil api")}
 	}
-	b := Select(a.exec, a.d, columns...)
+	b := newSelectBuilder(a.exec, a.d, columns...)
 	if a.err != nil {
 		b.err = a.err
 		return b
@@ -78,7 +78,7 @@ func (a *API) Insert(table string) *InsertBuilder {
 	if a == nil {
 		return &InsertBuilder{err: errors.New("corm: nil api")}
 	}
-	b := Insert(a.exec, a.d, table)
+	b := newInsertBuilder(a.exec, a.d, table)
 	if a.err != nil {
 		b.err = a.err
 		return b
@@ -94,7 +94,7 @@ func (a *API) Update(table string) *UpdateBuilder {
 	if a == nil {
 		return &UpdateBuilder{err: errors.New("corm: nil api")}
 	}
-	b := Update(a.exec, a.d, table)
+	b := newUpdateBuilder(a.exec, a.d, table)
 	if a.err != nil {
 		b.err = a.err
 		return b
@@ -110,7 +110,7 @@ func (a *API) Delete(table string) *DeleteBuilder {
 	if a == nil {
 		return &DeleteBuilder{err: errors.New("corm: nil api")}
 	}
-	b := Delete(a.exec, a.d, table)
+	b := newDeleteBuilder(a.exec, a.d, table)
 	if a.err != nil {
 		b.err = a.err
 		return b

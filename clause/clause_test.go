@@ -213,4 +213,127 @@ func TestBuildInEdgeCases(t *testing.T) {
 	if len(expr3.Args) != 3 {
 		t.Errorf("Expected 3 args for int64 slice, got %d", len(expr3.Args))
 	}
+
+	// Test []uint32 slice
+	expr4 := clause.In("id", []uint32{10, 20, 30})
+	if expr4.SQL != "id IN (?, ?, ?)" {
+		t.Errorf("Expected 'id IN (?, ?, ?)' for uint32 slice, got %s", expr4.SQL)
+	}
+	if len(expr4.Args) != 3 {
+		t.Errorf("Expected 3 args for uint32 slice, got %d", len(expr4.Args))
+	}
+
+	// Test empty []uint32
+	expr5 := clause.In("id", []uint32{})
+	if expr5.SQL != "1=0" {
+		t.Errorf("Expected '1=0' for empty uint32 slice, got %s", expr5.SQL)
+	}
+}
+
+func TestNotIn(t *testing.T) {
+	expr := clause.NotIn("status", 1, 2, 3)
+	if expr.SQL != "status NOT IN (?, ?, ?)" {
+		t.Errorf("NotIn().SQL = %v, want 'status NOT IN (?, ?, ?)'", expr.SQL)
+	}
+	if len(expr.Args) != 3 {
+		t.Errorf("NotIn().Args length = %v, want 3", len(expr.Args))
+	}
+
+	emptyExpr := clause.NotIn("status", []int{})
+	if emptyExpr.SQL != "1=1" {
+		t.Errorf("NotIn() with empty slice SQL = %v, want '1=1'", emptyExpr.SQL)
+	}
+}
+
+func TestBetween(t *testing.T) {
+	expr := clause.Between("age", 18, 65)
+	if expr.SQL != "age BETWEEN ? AND ?" {
+		t.Errorf("Between().SQL = %v, want 'age BETWEEN ? AND ?'", expr.SQL)
+	}
+	if len(expr.Args) != 2 || expr.Args[0] != 18 || expr.Args[1] != 65 {
+		t.Errorf("Between().Args = %v, want [18, 65]", expr.Args)
+	}
+}
+
+func TestNotLike(t *testing.T) {
+	expr := clause.NotLike("name", "%admin%")
+	if expr.SQL != "name NOT LIKE ?" {
+		t.Errorf("NotLike().SQL = %v, want 'name NOT LIKE ?'", expr.SQL)
+	}
+	if len(expr.Args) != 1 || expr.Args[0] != "%admin%" {
+		t.Errorf("NotLike().Args = %v, want ['%%admin%%']", expr.Args)
+	}
+}
+
+func TestAggregateFunctions(t *testing.T) {
+	tests := []struct {
+		name    string
+		fn      func(string) clause.Expr
+		column  string
+		wantSQL string
+	}{
+		{"Count", clause.Count, "id", "COUNT(id)"},
+		{"Sum", clause.Sum, "price", "SUM(price)"},
+		{"Avg", clause.Avg, "score", "AVG(score)"},
+		{"Max", clause.Max, "age", "MAX(age)"},
+		{"Min", clause.Min, "age", "MIN(age)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.fn(tt.column)
+			if got.SQL != tt.wantSQL {
+				t.Errorf("%s().SQL = %v, want %v", tt.name, got.SQL, tt.wantSQL)
+			}
+			if len(got.Args) != 0 {
+				t.Errorf("%s().Args should be empty, got %v", tt.name, got.Args)
+			}
+		})
+	}
+}
+
+func TestAndOr(t *testing.T) {
+	eq1 := clause.Eq("a", 1)
+	eq2 := clause.Eq("b", 2)
+
+	andExpr := clause.And(eq1, eq2)
+	if andExpr.SQL != "(a = ?) AND (b = ?)" {
+		t.Errorf("And().SQL = %v", andExpr.SQL)
+	}
+	if len(andExpr.Args) != 2 {
+		t.Errorf("And().Args length = %v, want 2", len(andExpr.Args))
+	}
+
+	orExpr := clause.Or(eq1, eq2)
+	if orExpr.SQL != "(a = ?) OR (b = ?)" {
+		t.Errorf("Or().SQL = %v", orExpr.SQL)
+	}
+
+	emptyAnd := clause.And()
+	if emptyAnd.SQL != "" {
+		t.Errorf("And() with no args should be empty, got %v", emptyAnd.SQL)
+	}
+}
+
+func TestInWithSliceTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		values  []any
+		wantLen int
+	}{
+		{"[]string", []any{[]string{"a", "b", "c"}}, 3},
+		{"[]int", []any{[]int{1, 2, 3}}, 3},
+		{"[]int64", []any{[]int64{1, 2, 3}}, 3},
+		{"[]int32", []any{[]int32{1, 2, 3}}, 3},
+		{"[]uint32", []any{[]uint32{1, 2, 3}}, 3},
+		{"[]uint64", []any{[]uint64{1, 2, 3}}, 3},
+		{"[]uint", []any{[]uint{1, 2, 3}}, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr := clause.In("col", tt.values...)
+			if len(expr.Args) != tt.wantLen {
+				t.Errorf("In(%s).Args length = %v, want %v", tt.name, len(expr.Args), tt.wantLen)
+			}
+		})
+	}
 }

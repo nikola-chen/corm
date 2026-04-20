@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/nikola-chen/corm/internal"
 	"github.com/nikola-chen/corm/schema"
@@ -17,79 +16,42 @@ type structPlanKey struct {
 	cols string
 }
 
-var structPlanCache sync.Map
-var structPlanCacheCount atomic.Uint64
+type structPlanCache struct {
+	mu    sync.RWMutex
+	items map[structPlanKey][][]int
+	count int
+}
+
+var spCache = &structPlanCache{items: make(map[structPlanKey][][]int, 256)}
 
 const maxStructPlanCacheEntries = 1024
 
-var anySlicePool sync.Pool
-
-const maxPooledAnySliceCap = 4096
-
-func getAnySlice(n int) []any {
-	if v := anySlicePool.Get(); v != nil {
-		s := v.([]any)
-		if cap(s) >= n {
-			return s[:n]
-		}
-	}
-	return make([]any, n)
-}
-
-func putAnySlice(s []any) {
-	if s == nil {
-		return
-	}
-	for i := range s {
-		s[i] = nil
-	}
-	if cap(s) > maxPooledAnySliceCap {
-		return
-	}
-	anySlicePool.Put(s)
-}
-
-var colsKeyBuilderPool = sync.Pool{
-	New: func() any {
-		b := make([]byte, 0, 256)
-		return &b
-	},
-}
-
 func colsKey(cols []string) string {
-	// Build a stable cache key for a column list.
-	// 0x1f is used as a separator byte to minimize collisions and allocations.
 	if len(cols) == 0 {
 		return ""
 	}
 
-	// Get buffer from pool
-	bufPtr := colsKeyBuilderPool.Get().(*[]byte)
-	buf := (*bufPtr)[:0]
+	// Estimate total capacity to avoid reallocations
+	cap := 0
+	for _, c := range cols {
+		cap += len(c) + 1
+	}
+
+	buf := make([]byte, 0, cap)
 
 	for i, c := range cols {
 		if i > 0 {
 			buf = append(buf, 0x1f)
 		}
-		// normalize inline to avoid allocation
 		c = strings.TrimSpace(c)
 		c = strings.Trim(c, "`\"")
 		if idx := strings.LastIndexByte(c, '.'); idx >= 0 {
 			c = c[idx+1:]
 		}
-		// Fast path: ASCII-only lowercasing
 		buf = appendLowerASCII(buf, c)
 	}
 
-	result := string(buf)
-
-	// Return buffer to pool if capacity is reasonable
-	if cap(buf) <= 1024 {
-		*bufPtr = buf
-		colsKeyBuilderPool.Put(bufPtr)
-	}
-
-	return result
+	return string(buf)
 }
 
 // appendLowerASCII appends the lowercase version of s to buf and returns the new slice.
@@ -126,9 +88,12 @@ func writeLowerASCII(b *strings.Builder, s string) {
 
 func structPlan(s *schema.Schema, cols []string) [][]int {
 	key := structPlanKey{t: s.Type, cols: colsKey(cols)}
-	if v, ok := structPlanCache.Load(key); ok {
-		return v.([][]int)
+	spCache.mu.RLock()
+	if v, ok := spCache.items[key]; ok {
+		spCache.mu.RUnlock()
+		return v
 	}
+	spCache.mu.RUnlock()
 
 	plan := make([][]int, len(cols))
 	for i, c := range cols {
@@ -140,15 +105,18 @@ func structPlan(s *schema.Schema, cols []string) [][]int {
 		copy(idx, f.Index)
 		plan[i] = idx
 	}
-	if structPlanCacheCount.Load() >= maxStructPlanCacheEntries {
-		structPlanCacheCount.Store(0)
-		structPlanCache = sync.Map{}
+
+	spCache.mu.Lock()
+	if spCache.count >= maxStructPlanCacheEntries {
+		spCache.items = make(map[structPlanKey][][]int, 256)
+		spCache.count = 0
 	}
-	actual, loaded := structPlanCache.LoadOrStore(key, plan)
-	if !loaded {
-		structPlanCacheCount.Add(1)
+	if _, ok := spCache.items[key]; !ok {
+		spCache.items[key] = plan
+		spCache.count++
 	}
-	return actual.([][]int)
+	spCache.mu.Unlock()
+	return plan
 }
 
 func ScanAll(rows *sql.Rows, dest any) error {
@@ -203,11 +171,9 @@ func scanAll(rows *sql.Rows, dest any, strictStructColumns bool, capHint int) er
 		}
 		valT := elemT.Elem()
 		n := len(cols)
-		holders := getAnySlice(n)
-		defer putAnySlice(holders)
+		holders := make([]any, n)
 		for i := range holders {
-			var v any
-			holders[i] = &v
+			holders[i] = new(any)
 		}
 
 		// Pre-allocate reflect.Value keys to avoid allocation in loop
@@ -281,16 +247,15 @@ func scanAll(rows *sql.Rows, dest any, strictStructColumns bool, capHint int) er
 		}
 		plan := structPlan(s, cols)
 		n := len(cols)
-		holders := getAnySlice(n)
-		defer putAnySlice(holders)
-
-		var dummySink any
+		holders := make([]any, n)
 
 		for {
 			elem := reflect.New(s.Type).Elem()
 			for i := 0; i < n; i++ {
 				if plan[i] == nil {
-					holders[i] = &dummySink
+					// Each row gets its own dummy to avoid any potential issues
+					var dummy any
+					holders[i] = &dummy
 					continue
 				}
 				holders[i] = elem.FieldByIndex(plan[i]).Addr().Interface()
@@ -356,11 +321,9 @@ func scanOne(rows *sql.Rows, dest any, strictStructColumns bool) error {
 		}
 		valT := base.Type().Elem()
 		n := len(cols)
-		holders := getAnySlice(n)
-		defer putAnySlice(holders)
+		holders := make([]any, n)
 		for i := range holders {
-			var v any
-			holders[i] = &v
+			holders[i] = new(any)
 		}
 		if err := rows.Scan(holders...); err != nil {
 			return err
@@ -419,16 +382,12 @@ func scanOne(rows *sql.Rows, dest any, strictStructColumns bool) error {
 		}
 		plan := structPlan(s, cols)
 		n := len(cols)
-		holders := getAnySlice(n)
-		defer putAnySlice(holders)
-
-		// Shared dummy for unmapped columns
-		var sharedDummy any
+		holders := make([]any, n)
 
 		for i := 0; i < n; i++ {
 			if plan[i] == nil {
-				sharedDummy = nil
-				holders[i] = &sharedDummy
+				var dummy any
+				holders[i] = &dummy
 				continue
 			}
 			holders[i] = base.FieldByIndex(plan[i]).Addr().Interface()

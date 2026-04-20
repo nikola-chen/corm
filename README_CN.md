@@ -608,7 +608,140 @@ q1.UnionAll(q2).All(ctx, &ids)
 e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 ```
 
+### InsertIgnore（MySQL）
+
+跳过会导致重复键错误的行：
+
+```go
+_, err := e.Insert("users").
+    Columns("id", "name").
+    Values(1, "Alice").
+    InsertIgnore(). // 生成：INSERT IGNORE INTO ...
+    Exec(ctx)
+```
+
+注意：`InsertIgnore` 仅支持 MySQL，在 PostgreSQL 上调用会返回错误。
+
+### SetExpr（使用原始表达式更新）
+
+将列设置为原始 SQL 表达式而非绑定参数：
+
+```go
+_, err := e.Update("users").
+    SetExpr("updated_at", clause.Raw("NOW()")).
+    Set("name", "Alice").
+    WhereEq("id", 1).
+    Exec(ctx)
+// 生成：UPDATE `users` SET `updated_at` = NOW(), `name` = ? WHERE (`id` = ?)
+```
+
+### CountExpr（自定义计数表达式）
+
+使用自定义表达式进行计数，如 `COUNT(DISTINCT column)`：
+
+```go
+count, err := e.Select().From("users").WhereEq("status", 1).
+    CountExpr(ctx, clause.Raw("COUNT(DISTINCT `email`)"))
+```
+
+当查询包含 `GROUP BY` 时，`CountExpr` 会自动将查询包装在子查询中：
+
+```go
+// SELECT COUNT(*) FROM (SELECT ... FROM users GROUP BY status) AS sub
+count, err := e.Select("status").From("users").GroupBy("status").
+    Count(ctx)
+```
+
+// 即使 fn 发生 panic，rows.Close() 也会被自动调用
+```
+
+### Iter (Go 1.23+ 现代迭代器)
+
+使用 Go 1.23+ 的 range-over-function 特性，以最优雅的方式处理查询结果。
+
+```go
+// SELECT id, name FROM users WHERE status = 1
+query := e.Select("id", "name").From("users").WhereEq("status", 1)
+
+// Iter 会在循环结束或提前中断时自动关闭 rows
+for u, err := range engine.Iter[User](ctx, query) {
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(u.Name)
+}
+```
+
 ## 更新日志
+
+### v2.1.1 (优化与测试增强)
+
+**性能优化：**
+- 优化 `clause.In()` 处理 `[]any` 类型时的性能，消除不必要的切片拷贝，减少内存分配。
+- 改进 `colsKey` 缓冲区大小计算，减少结果扫描时的内存重分配。
+- 增强扫描逻辑，将共享的 dummy 变量替换为每行独立分配，防止潜在的竞态条件。
+- 提取可复用的 `trimSpaceASCII` 函数，减少标识符引用中的代码重复。
+- 合并 `engine/executor.go` 中重复的 executor 包装逻辑，使用共享的 `wrapExecutor` 辅助函数。
+
+**测试增强：**
+- 添加 executor 包的全面测试（formatArgs、truncateSQL、loggingExecutor）。
+- 添加 mock executor 测试以验证日志记录行为。
+- 添加 scan 包测试，覆盖包含未映射列的结构体、ScanOne 变体和边缘情况。
+- 添加 builder 包测试，覆盖 Union、UnionAll、子查询 FROM、INSERT FROM SELECT、JOIN 更新、USING 删除、DISTINCT、FOR UPDATE/FOR SHARE 和 HAVING 子句。
+- 测试覆盖率提升：scan 60.2% → 69.3%，builder 54.8% → 55.1%，schema 71.8% → 73.2%。
+
+### v2.1.0 (深度审计版本)
+
+**Go 1.26.2 现代化适配:**
+- 全面支持 Go 1.23+ 迭代器，提供 `engine.Iter[T]` 与 `builder.Iter[T]`。
+- 彻底移除全库 `sync.Pool` 使用，转而利用现代 Go 栈分配优化及逃逸分析，提升极端压力下的稳定性。
+- 优化核心 Scan 逻辑，通过减少反射中间层提升处理速度。
+
+**架构与稳定性增强:**
+- 修复 `schema` 解析在高并发下的竞态风险。
+- 统一内部所有缓存（Schema, Dialect, SnakeCase, Plan）的读写锁模式与确定性驱逐策略。
+- 强化 SQL 语句与标识符长度的集中校验逻辑。
+
+### v2.0.2
+
+**新功能：**
+- 添加 `InsertIgnore()` 支持 MySQL 批量插入优化（生成 `INSERT IGNORE INTO ...`）。
+- 添加 `SetExpr()` 支持使用原始 SQL 表达式更新列（如 `SET updated_at = NOW()`）。
+- 添加 `CountExpr()` 支持自定义计数表达式，如 `COUNT(DISTINCT column)`。
+- 添加 `QueryFunc()` 安全行迭代，保证 `rows.Close()` 清理。
+- 添加 `[]uint32` 类型支持到 `clause.In()` 和 `clause.NotIn()`。
+
+**Bug 修复：**
+- 修复 `Count()` 方法在包含 `GROUP BY` 时结果不正确的问题，现在会自动包装为子查询。
+- 修复 `Count()` 方法在简单计数查询中不再包含 `GROUP BY`/`HAVING`。
+
+**性能优化：**
+- 优化 `NormalizeColumn`，为纯 ASCII 列名添加快速路径，减少内存分配。
+
+**测试：**
+- 添加全面的 SQL 注入防护测试，覆盖所有 builder 类型。
+- 添加 dialect 单元测试（覆盖率：17.2% → 96.9%）。
+- 添加 clause 单元测试（覆盖率：38.9% → 77.1%）。
+- 添加 builder 新功能单元测试（覆盖率：53.4% → 54.9%）。
+
+### v2.0.2
+
+**性能优化：**
+- 将所有 `sync.Map` 缓存替换为 `sync.RWMutex` + 类型化 map，提升性能并增强类型安全：
+  - `dialect/mysql.go` 和 `dialect/postgres.go`：QuoteIdent 缓存使用 RWMutex 与可控驱逐策略。
+  - `schema/schema.go`：Schema 解析缓存和 ToSnake 缓存使用 RWMutex，提升并发读性能。
+  - `scan/scan.go`：Struct plan 缓存使用 RWMutex，在高并发场景下查询更快。
+- 缩小 API 暴露面，将 builder 工厂函数设为私有（`newSelectBuilder`、`newInsertBuilder` 等），强制使用 `builder.NewAPI()` 或 engine/transaction 方法。
+
+**代码结构改进：**
+- 增强 builder 包的封装性，减少公开 API。
+- 统一所有包的缓存驱逐策略（超过阈值时全量清空）。
+- 移除缓存重构后未使用的 `sync/atomic` 导入。
+
+**测试：**
+- 补充 schema 包测试（缓存、ColumnsAndValues、边界情况）。
+- 补充 scan 包测试（nil dest、非 slice、缓存验证）。
+- 所有包均具备针对错误路径和边界情况的健壮测试覆盖。
 
 ### v2.0.0
 

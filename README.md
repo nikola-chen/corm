@@ -606,6 +606,70 @@ q1.UnionAll(q2).All(ctx, &ids)
 e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 ```
 
+### InsertIgnore (MySQL)
+
+Skip rows that would cause duplicate key errors:
+
+```go
+_, err := e.Insert("users").
+    Columns("id", "name").
+    Values(1, "Alice").
+    InsertIgnore(). // Generates: INSERT IGNORE INTO ...
+    Exec(ctx)
+```
+
+Note: `InsertIgnore` is only supported by MySQL. Calling it on PostgreSQL returns an error.
+
+### SetExpr (Update with Raw Expression)
+
+Set a column to a raw SQL expression instead of a bound parameter:
+
+```go
+_, err := e.Update("users").
+    SetExpr("updated_at", clause.Raw("NOW()")).
+    Set("name", "Alice").
+    WhereEq("id", 1).
+    Exec(ctx)
+// Generates: UPDATE `users` SET `updated_at` = NOW(), `name` = ? WHERE (`id` = ?)
+```
+
+### CountExpr (Custom Count Expression)
+
+Count with a custom expression, such as `COUNT(DISTINCT column)`:
+
+```go
+count, err := e.Select().From("users").WhereEq("status", 1).
+    CountExpr(ctx, clause.Raw("COUNT(DISTINCT `email`)"))
+```
+
+When the query has `GROUP BY`, `CountExpr` automatically wraps the query in a subquery:
+
+```go
+// SELECT COUNT(*) FROM (SELECT ... FROM users GROUP BY status) AS sub
+count, err := e.Select("status").From("users").GroupBy("status").
+    Count(ctx)
+```
+
+// rows.Close() is called automatically even if fn panics
+```
+
+### Iter (Go 1.23+ Streaming)
+
+Use Go 1.23+ range-over-function for the most elegant way to stream results.
+
+```go
+// SELECT id, name FROM users WHERE status = 1
+query := e.Select("id", "name").From("users").WhereEq("status", 1)
+
+// Iter automatically closes rows when loop ends or breaks
+for u, err := range engine.Iter[User](ctx, query) {
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(u.Name)
+}
+```
+
 ### Map Operations
 
 ```go
@@ -634,6 +698,76 @@ err := e.Select("id", "name").
 ```
 
 ## Changelog
+
+### v2.1.1 (Optimization & Testing)
+
+**Performance Optimizations:**
+- Optimized `clause.In()` for `[]any` type by eliminating unnecessary slice copy, reducing memory allocations.
+- Improved `colsKey` buffer sizing to minimize reallocations during result scanning.
+- Enhanced scanning logic by replacing shared dummy variables with per-row allocation to prevent potential race conditions.
+- Extracted reusable `trimSpaceASCII` function to reduce code duplication in identifier quoting.
+- Consolidated duplicate executor wrapping logic in `engine/executor.go` with shared `wrapExecutor` helper.
+
+**Testing Enhancements:**
+- Added comprehensive executor package tests (formatArgs, truncateSQL, loggingExecutor).
+- Added mock executor tests for logging behavior validation.
+- Added scan package tests for struct with unmapped columns, ScanOne variants, and edge cases.
+- Added builder package tests for Union, UnionAll, subquery FROM, INSERT FROM SELECT, JOIN updates, USING deletes, DISTINCT, FOR UPDATE/FOR SHARE, and HAVING clauses.
+- Improved test coverage: scan 60.2% → 69.3%, builder 54.8% → 55.1%, schema 71.8% → 73.2%.
+
+### v2.1.0 (Latest Audit)
+
+**Go 1.26.2 Readiness:**
+- Full support for Go 1.23+ iterators with `engine.Iter[T]` and `builder.Iter[T]`.
+- Completely removed `sync.Pool` usage across the library in favor of modern Go memory management.
+- Hardened `schema` parsing with race-safe double-check locking.
+
+**Stability & Audit:**
+- Refactored all internal caches (Schema, SnakeCase, Dialect, StructPlan) to use consistent `sync.RWMutex` patterns with deterministic eviction.
+- Optimized scan performance by reducing redundant reflection work.
+- Consolidated identifier quoting and validation logic.
+
+### v2.0.2
+
+**Performance Optimizations:**
+- Replaced all `sync.Map` caches with `sync.RWMutex` + typed maps for better performance and type safety:
+  - `dialect/mysql.go` and `dialect/postgres.go`: QuoteIdent cache now uses RWMutex with controlled eviction.
+  - `schema/schema.go`: Schema parse cache and ToSnake cache now use RWMutex for better concurrent read performance.
+  - `scan/scan.go`: Struct plan cache now uses RWMutex for faster lookup in high-concurrency scenarios.
+- Reduced API surface by making builder factory functions private (`newSelectBuilder`, `newInsertBuilder`, etc.), enforcing use of `builder.NewAPI()` or engine/transaction methods.
+
+**Code Structure Improvements:**
+- Improved encapsulation by reducing public API surface in builder package.
+- Unified cache eviction strategy across all packages (clear-all when threshold exceeded).
+- Removed unused `sync/atomic` imports after cache refactoring.
+
+**Testing:**
+- Added comprehensive schema package tests (cache, ColumnsAndValues, edge cases).
+- Added scan package tests (nil dest, non-slice, cache validation).
+- All packages now have robust test coverage for error paths and edge cases.
+
+### v2.0.1
+
+**New Features:**
+- Added `InsertIgnore()` for MySQL bulk insert optimization (generates `INSERT IGNORE INTO ...`).
+- Added `SetExpr()` for updating columns with raw SQL expressions (e.g., `SET updated_at = NOW()`).
+- Added `CountExpr()` for custom count expressions like `COUNT(DISTINCT column)`.
+- Added `CountExprSQL()` for building count SQL without execution (useful for debugging/testing).
+- Added `QueryFunc()` for safe row iteration with guaranteed `rows.Close()` cleanup.
+- Added `[]uint32` support in `clause.In()` and `clause.NotIn()`.
+
+**Bug Fixes:**
+- Fixed `Count()` method to correctly handle queries with `GROUP BY` by wrapping in a subquery.
+- Fixed `Count()` method to no longer include `GROUP BY`/`HAVING` in simple count queries.
+
+**Performance:**
+- Optimized `NormalizeColumn` with fast path for ASCII-only column names, reducing allocations.
+
+**Testing:**
+- Added comprehensive SQL injection protection tests across all builder types.
+- Added dialect unit tests (coverage: 17.2% → 96.9%).
+- Added clause unit tests (coverage: 38.9% → 77.1%).
+- Added builder unit tests for new features (coverage: 53.4% → 54.9%).
 
 ### v2.0.0
 

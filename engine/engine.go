@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"iter"
 	"time"
 
 	"github.com/nikola-chen/corm/builder"
@@ -173,27 +174,32 @@ func (e *Engine) Transaction(ctx context.Context, fn func(*Tx) error) (err error
 
 // Select creates a new SelectBuilder.
 func (e *Engine) Select(columns ...string) *builder.SelectBuilder {
-	return builder.Select(e.executor(), e.dialect, columns...)
+	return builder.NewAPI(e.dialect, e.executor()).Select(columns...)
+}
+
+// Iter is a convenience for builder.Iter[T](ctx, e.Select(...)).
+func Iter[T any](ctx context.Context, b *builder.SelectBuilder) iter.Seq2[T, error] {
+	return builder.Iter[T](ctx, b)
 }
 
 // SelectExpr creates a new SelectBuilder with expression columns.
 func (e *Engine) SelectExpr(columns ...clause.Expr) *builder.SelectBuilder {
-	return builder.Select(e.executor(), e.dialect).SelectExpr(columns...)
+	return builder.NewAPI(e.dialect, e.executor()).Select().SelectExpr(columns...)
 }
 
 // Insert creates a new InsertBuilder.
 func (e *Engine) Insert(table string) *builder.InsertBuilder {
-	return builder.Insert(e.executor(), e.dialect, table)
+	return builder.NewAPI(e.dialect, e.executor()).Insert(table)
 }
 
 // Update creates a new UpdateBuilder.
 func (e *Engine) Update(table string) *builder.UpdateBuilder {
-	return builder.Update(e.executor(), e.dialect, table)
+	return builder.NewAPI(e.dialect, e.executor()).Update(table)
 }
 
 // Delete creates a new DeleteBuilder.
 func (e *Engine) Delete(table string) *builder.DeleteBuilder {
-	return builder.Delete(e.executor(), e.dialect, table)
+	return builder.NewAPI(e.dialect, e.executor()).Delete(table)
 }
 
 // RawExec executes a raw SQL query and returns the result.

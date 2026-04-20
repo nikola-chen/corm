@@ -3,38 +3,47 @@ package dialect
 import (
 	"strings"
 	"sync"
-	"sync/atomic"
 )
 
-var quoteCache sync.Map
-var quoteCacheCount atomic.Int64
 const maxQuoteCacheSize = 2048
 
-type mysqlDialect struct{}
+type mysqlDialect struct {
+	mu       sync.RWMutex
+	cache    map[string]string
+	cacheLen int
+}
 
-func (d mysqlDialect) Name() string { return "mysql" }
+func (d *mysqlDialect) Name() string { return "mysql" }
 
-func (d mysqlDialect) Placeholder(n int) string { return "?" }
+func (d *mysqlDialect) Placeholder(n int) string { return "?" }
 
-func (d mysqlDialect) QuoteIdent(ident string) string {
+func (d *mysqlDialect) QuoteIdent(ident string) string {
 	if ident == "" {
 		return "``"
-	}
-
-	// Check cache first
-	if cached, ok := quoteCache.Load(ident); ok {
-		return cached.(string)
 	}
 
 	// Fast path: no backticks in ident
 	if strings.IndexByte(ident, '`') == -1 {
 		result := "`" + ident + "`"
 		if len(ident) <= 64 {
-			if quoteCacheCount.Load() < maxQuoteCacheSize {
-				if _, loaded := quoteCache.LoadOrStore(ident, result); !loaded {
-					quoteCacheCount.Add(1)
+			d.mu.RLock()
+			if v, ok := d.cache[ident]; ok {
+				d.mu.RUnlock()
+				return v
+			}
+			d.mu.RUnlock()
+
+			d.mu.Lock()
+			if d.cache == nil {
+				d.cache = make(map[string]string, 256)
+			}
+			if d.cacheLen < maxQuoteCacheSize {
+				if _, ok := d.cache[ident]; !ok {
+					d.cache[ident] = result
+					d.cacheLen++
 				}
 			}
+			d.mu.Unlock()
 		}
 		return result
 	}
@@ -55,8 +64,8 @@ func (d mysqlDialect) QuoteIdent(ident string) string {
 	return result.String()
 }
 
-func (d mysqlDialect) SupportsReturning() bool { return false }
+func (d *mysqlDialect) SupportsReturning() bool { return false }
 
 func init() {
-	Register("mysql", mysqlDialect{})
+	Register("mysql", &mysqlDialect{})
 }

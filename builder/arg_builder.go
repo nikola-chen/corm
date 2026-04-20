@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
@@ -16,18 +15,6 @@ const (
 	maxSQLLength     = 1024 * 1024 // 1MB max SQL length to prevent DoS
 )
 
-// argBuilderPool reduces allocations by reusing argBuilder instances.
-var argBuilderPool = sync.Pool{
-	New: func() any {
-		return &argBuilder{
-			args: make([]any, 0, 32),
-		}
-	},
-}
-
-// maxPooledArgs limits the capacity of args slice to prevent memory bloat.
-const maxPooledArgs = 256
-
 type argBuilder struct {
 	d         dialect.Dialect
 	idx       int
@@ -37,22 +24,17 @@ type argBuilder struct {
 }
 
 func newArgBuilder(d dialect.Dialect, buf *strings.Builder) *argBuilder {
-	ab := argBuilderPool.Get().(*argBuilder)
-	ab.d = d
-	ab.idx = 1
-	ab.args = ab.args[:0]
-	ab.usesQmark = d.Placeholder(1) == "?"
-	ab.buf = buf
-	return ab
+	return &argBuilder{
+		d:         d,
+		idx:       1,
+		args:      make([]any, 0, 32),
+		usesQmark: d.Placeholder(1) == "?",
+		buf:       buf,
+	}
 }
 
 func putArgBuilder(ab *argBuilder) {
-	if ab == nil || cap(ab.args) > maxPooledArgs {
-		return
-	}
-	ab.d = nil
-	ab.buf = nil
-	argBuilderPool.Put(ab)
+	// No-op without pool
 }
 
 func (a *argBuilder) usesQuestionPlaceholders() bool {
@@ -80,7 +62,7 @@ func (a *argBuilder) appendExpr(e clause.Expr) error {
 	}
 	// Check if adding this SQL would exceed the maximum length
 	if a.buf.Len()+len(sql) > maxSQLLength {
-		return errors.New("corm: SQL statement exceeds maximum length of 1MB")
+		return errSQLTooLong
 	}
 	if len(e.Args) == 0 {
 		a.buf.WriteString(sql)
@@ -107,11 +89,9 @@ func (a *argBuilder) appendExpr(e clause.Expr) error {
 		if next-a.idx != expected {
 			return fmt.Errorf("corm: placeholder count mismatch: expected %d, got %d", expected, next-a.idx)
 		}
-		// Check if adding rewritten SQL would exceed the maximum length
-		if a.buf.Len()+len(rewritten) > maxSQLLength {
-			return errors.New("corm: SQL statement exceeds maximum length of 1MB")
+		if err := a.checkAndWrite(rewritten); err != nil {
+			return err
 		}
-		a.buf.WriteString(rewritten)
 		a.args = append(a.args, e.Args...)
 		a.idx = next
 		return nil
@@ -123,13 +103,22 @@ func (a *argBuilder) appendExpr(e clause.Expr) error {
 	if next-a.idx != expected {
 		return fmt.Errorf("corm: placeholder count mismatch: expected %d, got %d", expected, next-a.idx)
 	}
-	// Check if adding rewritten SQL would exceed the maximum length
-	if a.buf.Len()+len(rewritten) > maxSQLLength {
-		return errors.New("corm: SQL statement exceeds maximum length of 1MB")
+	if err := a.checkAndWrite(rewritten); err != nil {
+		return err
 	}
-	a.buf.WriteString(rewritten)
 	a.args = append(a.args, e.Args...)
 	a.idx = next
+	return nil
+}
+
+var errSQLTooLong = errors.New("corm: SQL statement exceeds maximum length of 1MB")
+
+// checkAndWrite checks if adding sql would exceed maxSQLLength, then writes it.
+func (a *argBuilder) checkAndWrite(sql string) error {
+	if a.buf.Len()+len(sql) > maxSQLLength {
+		return errSQLTooLong
+	}
+	a.buf.WriteString(sql)
 	return nil
 }
 

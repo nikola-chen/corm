@@ -213,3 +213,207 @@ func TestScanAllStrictDuplicateColumns(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
+
+func TestScanAllCap(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "struct_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out []User
+	if err := scan.ScanAllCap(rows, &out, 10); err != nil {
+		t.Fatalf("ScanAllCap: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("len(out)=%d", len(out))
+	}
+	if cap(out) < 10 {
+		t.Fatalf("expected cap >= 10, got %d", cap(out))
+	}
+}
+
+func TestScanAllNilDest(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out []User
+	if err := scan.ScanAll(rows, out); err == nil {
+		t.Fatalf("expected error for non-pointer dest")
+	}
+}
+
+func TestScanAllNonSlice(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out User
+	if err := scan.ScanAll(rows, &out); err == nil {
+		t.Fatalf("expected error for non-slice dest")
+	}
+}
+
+func TestScanAllNilSlice(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out *[]User
+	if err := scan.ScanAll(rows, out); err == nil {
+		t.Fatalf("expected error for nil pointer")
+	}
+}
+
+func TestScanAllStructCache(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "struct_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out1 []User
+	if err := scan.ScanAll(rows, &out1); err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+
+	// Second scan with same struct type should use cached plan
+	rows2, err := db.QueryContext(context.Background(), "struct_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out2 []User
+	if err := scan.ScanAll(rows2, &out2); err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+
+	if len(out1) != len(out2) {
+		t.Fatalf("expected same results, got %d vs %d", len(out1), len(out2))
+	}
+}
+
+func TestScanAllMapNilDest(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "map_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out []map[string]any
+	if err := scan.ScanAll(rows, out); err == nil {
+		t.Fatalf("expected error for non-pointer dest")
+	}
+}
+
+func TestScanAllMapNonSlice(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "map_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out map[string]any
+	if err := scan.ScanAll(rows, &out); err == nil {
+		t.Fatalf("expected error for non-slice dest")
+	}
+}
+
+func TestScanAllMapNilSlice(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "map_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out *[]map[string]any
+	if err := scan.ScanAll(rows, out); err == nil {
+		t.Fatalf("expected error for nil pointer")
+	}
+}
+
+func TestScanAllStructWithUnmappedColumns(t *testing.T) {
+	db := openTestDB(t)
+	// Query returns columns not in struct
+	rows, err := db.QueryContext(context.Background(), "struct_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	type MinimalUser struct {
+		ID int `db:"id"`
+	}
+	var out []MinimalUser
+	if err := scan.ScanAll(rows, &out); err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("len(out)=%d", len(out))
+	}
+	if out[0].ID != 1 || out[1].ID != 2 {
+		t.Fatalf("ids=%d,%d", out[0].ID, out[1].ID)
+	}
+}
+
+func TestScanOneStruct(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var u User
+	if err := scan.ScanOne(rows, &u); err != nil {
+		t.Fatalf("ScanOne: %v", err)
+	}
+	if u.ID != 7 || u.Name != "neo" {
+		t.Fatalf("u=%+v", u)
+	}
+}
+
+func TestScanOneMap(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "map_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out map[string]any
+	if err := scan.ScanOne(rows, &out); err != nil {
+		t.Fatalf("ScanOne: %v", err)
+	}
+	if out["id"] != int64(1) || out["score"] != int64(10) {
+		t.Fatalf("out=%v", out)
+	}
+}
+
+func TestScanOneNilDest(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out *User
+	if err := scan.ScanOne(rows, out); err == nil {
+		t.Fatalf("expected error for nil pointer")
+	}
+}
+
+func TestScanOneNonPointer(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out User
+	if err := scan.ScanOne(rows, out); err == nil {
+		t.Fatalf("expected error for non-pointer")
+	}
+}
+
+func TestScanOneWrongType(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out string
+	if err := scan.ScanOne(rows, &out); err == nil {
+		t.Fatalf("expected error for wrong type")
+	}
+}

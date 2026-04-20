@@ -16,10 +16,17 @@
 - 批量插入（结构体切片）：`e.Insert("").Models([]User{...}).Exec(ctx)`
 - 批量插入（map 切片）：`e.Insert("users").Columns("a","b").Maps([]map[string]any{...}).Exec(ctx)`
 - 插入并返回 ID：`id, err := e.Insert("").Model(&obj).ExecAndReturnID(ctx, "id")`
+- MySQL INSERT IGNORE：`e.Insert("users").Columns("id","name").Values(1,"a").InsertIgnore().Exec(ctx)`
 - 更新结构体：`e.Update("").Model(&obj).Where("id = ?", obj.ID).Exec(ctx)`
 - 更新 map（单行）：`e.Update("users").Map(map[string]any{...}).Where("id = ?", 1).Exec(ctx)`
+- 更新表达式列：`e.Update("users").SetExpr("updated_at", clause.Raw("NOW()")).Where("id = ?", 1).Exec(ctx)`
 - 批量更新（结构体切片）：`e.Update("").Models([]User{...}).Exec(ctx)`（单条 SQL，CASE WHEN）
 - 删除：`e.Delete("users").Where("id = ?", 1).Exec(ctx)`（默认禁止无 WHERE 全表删除）
+- 计数：`count, err := e.Select().From("users").WhereEq("status", 1).Count(ctx)`
+- 自定义计数：`count, err := e.Select().From("users").CountExpr(ctx, clause.Raw("COUNT(DISTINCT `email`)"))`
+- 存在性检查：`exists, err := e.Select().From("users").WhereEq("id", 1).Exists(ctx)`
+- 安全行迭代：`e.Select(...).From(...).QueryFunc(ctx, func(rows *sql.Rows) error { ... })`
+- 现代流式迭代 (Go 1.23+)：`for u, err := range engine.Iter[User](ctx, e.Select().From("users")) { ... }`
 - PostgreSQL RETURNING：`e.Update("users").Set("status", 1).Where("id = 1").Returning("id").QueryFunc(...)`
 - Upsert (MySQL/PostgreSQL)：`e.Insert("users").Model(&u).OnConflict("id").DoUpdate(map[string]any{"name": u.Name}).Exec(ctx)`
 - Raw Exec：`e.RawExec(ctx, "UPDATE users SET age = ?", 18)`
@@ -195,7 +202,7 @@ e.Select("u.name").
 - For high-throughput map inserts with predefined Columns(...), prefer `MapLowerKeys/MapsLowerKeys` when keys are already normalized to lower-case.
 - `Model(interface{})` for struct-based inserts.
 - `ExecAndReturnID(ctx, pkName)` for Postgres returning ID.
-- `SuffixRaw(sql, args...)` for database-specific suffix (e.g. upsert).
+- `SuffixRaw(sql, args...)` for database-specific suffix (e.g. upsert)
 
 ### 4.3 UPDATE
 
@@ -538,7 +545,73 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.0.0`
+- 当前版本：`v2.1.1` (Ready for Go 1.26.2)
+
+### v2.1.1 变更摘要
+
+**性能优化：**
+- `clause.In()` 处理 `[]any` 类型时消除不必要的切片拷贝。
+- `colsKey` 缓冲区大小动态计算，减少内存重分配。
+- 扫描逻辑使用每行独立的 dummy 变量，避免潜在竞态条件。
+- `trimSpaceASCII` 提取为可复用函数，减少代码重复。
+- `wrapExecutor` 统一 Engine 和 Tx 的 executor 包装逻辑。
+
+**测试增强：**
+- scan 包新增结构体未映射列、ScanOne 变体等测试（覆盖率 60.2% → 69.3%）。
+- builder 包新增 Union、子查询、JOIN、DISTINCT、FOR UPDATE 等测试（覆盖率 54.8% → 55.1%）。
+- schema 包测试覆盖率 71.8% → 73.2%。
+
+### v2.1.0 (Latest Audit)
+
+**Go 1.26.2 现代化:**
+- 全面拥抱 Go 1.23+ 迭代器，支持 `engine.Iter[T]` 与 `builder.Iter[T]`。
+- 彻底移除 `sync.Pool` 对象复用，转而信任现代 Go 运行时的逃逸分析与栈分配优化，提升稳定性并杜绝连接泄露风险。
+- 优化核心 Scan 逻辑，减少反射调用深度。
+
+**深度审计修复:**
+- 修复 `schema` 解析中的潜在竞态条件。
+- 统一所有内部缓存（Schema, SnakeCase, Dialect Quote, StructPlan）的 RWMutex 读写分离逻辑与驱逐策略。
+- 增强 SQL 语句与表名长度限制的集中式校验。
+
+**性能优化：**
+- 将所有 `sync.Map` 缓存替换为 `sync.RWMutex` + 类型化 map，提升性能并增强类型安全：
+  - `dialect/mysql.go` 和 `dialect/postgres.go`：QuoteIdent 缓存使用 RWMutex 与可控驱逐策略。
+  - `schema/schema.go`：Schema 解析缓存和 ToSnake 缓存使用 RWMutex，提升并发读性能。
+  - `scan/scan.go`：Struct plan 缓存使用 RWMutex，在高并发场景下查询更快。
+- 缩小 API 暴露面，将 builder 工厂函数设为私有（`newSelectBuilder`、`newInsertBuilder` 等），强制使用 `builder.NewAPI()` 或 engine/transaction 方法。
+
+**代码结构改进：**
+- 增强 builder 包的封装性，减少公开 API。
+- 统一所有包的缓存驱逐策略（超过阈值时全量清空）。
+- 移除缓存重构后未使用的 `sync/atomic` 导入。
+
+**测试：**
+- 补充 schema 包测试（缓存、ColumnsAndValues、边界情况）。
+- 补充 scan 包测试（nil dest、非 slice、缓存验证）。
+- 所有包均具备针对错误路径和边界情况的健壮测试覆盖。
+
+### v2.0.1 更新内容
+
+**新功能：**
+- `InsertIgnore()`：MySQL 专用，生成 `INSERT IGNORE INTO ...`，跳过重复键错误行。
+- `SetExpr(column, expr)`：更新时将列设置为原始 SQL 表达式（如 `NOW()`），而非绑定参数。
+- `CountExpr(ctx, expr)`：自定义计数表达式（如 `COUNT(DISTINCT email)`）。
+- `CountExprSQL(expr)`：构建计数 SQL 但不执行（便于调试/测试）。
+- `QueryFunc(ctx, fn)`：安全行迭代，保证 `rows.Close()` 被调用。
+- `clause.In()` / `clause.NotIn()` 新增 `[]uint32` 类型支持。
+
+**Bug 修复：**
+- `Count()` 在 `GROUP BY` 存在时自动包装子查询，返回正确的总组数。
+- `Count()` 不再在简单计数查询中包含 `GROUP BY`/`HAVING`。
+
+**性能优化：**
+- `NormalizeColumn` 为纯 ASCII 列名添加快速路径，减少内存分配。
+
+**测试覆盖：**
+- 新增 SQL 注入防护测试（覆盖所有 builder 类型）。
+- dialect 覆盖率：17.2% → 96.9%。
+- clause 覆盖率：38.9% → 77.1%。
+- builder 覆盖率：53.4% → 54.9%。
 
 ### v2.0.0 更新内容
 

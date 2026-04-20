@@ -6,17 +6,10 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"unicode"
 )
 
-// snakeBufferPool is used to reuse buffers for ToSnake conversions.
-var snakeBufferPool = sync.Pool{
-	New: func() any {
-		b := make([]byte, 0, 64)
-		return &b
-	},
-}
+
 
 // TableNamer is an interface for structs to customize their table name.
 type TableNamer interface {
@@ -87,12 +80,30 @@ func (s *Schema) ColumnsAndValues(dest any, opts ExtractOptions) ([]string, []an
 	return cols, vals, nil
 }
 
-var cache sync.Map
-var cacheCount atomic.Uint64
-
 // maxSchemaCacheEntries bounds the global schema cache to avoid unbounded memory growth
 // in long-lived processes that may parse many different struct types.
 const maxSchemaCacheEntries = 1024
+
+type schemaCache struct {
+	mu    sync.RWMutex
+	items map[reflect.Type]*Schema
+	count int
+}
+
+var scCache = &schemaCache{items: make(map[reflect.Type]*Schema, 256)}
+
+type parseEntry struct {
+	done chan struct{}
+	s    *Schema
+	err  error
+}
+
+type parseGroup struct {
+	mu    sync.Mutex
+	items map[reflect.Type]*parseEntry
+}
+
+var pg = &parseGroup{items: make(map[reflect.Type]*parseEntry)}
 
 // Parse parses a struct model and returns its Schema.
 // It caches the result for future use.
@@ -109,15 +120,6 @@ func Parse(model any) (*Schema, error) {
 	return ParseType(t)
 }
 
-type parseEntry struct {
-	done chan struct{}
-	s    *Schema
-	err  error
-}
-
-// parseGroup avoids redundant parsing of the same type by concurrent callers.
-var parseGroup sync.Map
-
 func ParseType(t reflect.Type) (*Schema, error) {
 	if t == nil {
 		return nil, ErrInvalidModel
@@ -126,20 +128,32 @@ func ParseType(t reflect.Type) (*Schema, error) {
 		return nil, errors.New("corm: model must be struct, got " + t.Kind().String())
 	}
 
-	if v, ok := cache.Load(t); ok {
-		return v.(*Schema), nil
+	scCache.mu.RLock()
+	if v, ok := scCache.items[t]; ok {
+		scCache.mu.RUnlock()
+		return v, nil
 	}
+	scCache.mu.RUnlock()
 
 	e := &parseEntry{done: make(chan struct{})}
-	actual, loaded := parseGroup.LoadOrStore(t, e)
-	if loaded {
-		e = actual.(*parseEntry)
-		<-e.done
-		if e.err != nil {
-			return nil, e.err
-		}
-		return e.s, nil
+	pg.mu.Lock()
+	scCache.mu.RLock()
+	if v, ok := scCache.items[t]; ok {
+		scCache.mu.RUnlock()
+		pg.mu.Unlock()
+		return v, nil
 	}
+	scCache.mu.RUnlock()
+	if existing, ok := pg.items[t]; ok {
+		pg.mu.Unlock()
+		<-existing.done
+		if existing.err != nil {
+			return nil, existing.err
+		}
+		return existing.s, nil
+	}
+	pg.items[t] = e
+	pg.mu.Unlock()
 
 	var s *Schema
 	var err error
@@ -155,35 +169,29 @@ func ParseType(t reflect.Type) (*Schema, error) {
 		e.s = nil
 		e.err = err
 		close(e.done)
-		parseGroup.Delete(t)
+		pg.mu.Lock()
+		delete(pg.items, t)
+		pg.mu.Unlock()
 		return nil, err
 	}
 
-	actualS, loaded := cache.LoadOrStore(t, s)
-	if loaded {
-		s = actualS.(*Schema)
-	} else {
-		if cacheCount.Add(1) > maxSchemaCacheEntries {
-			evicted := false
-			cache.Range(func(k, _ any) bool {
-				if k == t {
-					return true
-				}
-				cache.Delete(k)
-				cacheCount.Add(^uint64(0))
-				evicted = true
-				return true
-			})
-			if !evicted {
-				cacheCount.Add(^uint64(0))
-			}
-		}
+	scCache.mu.Lock()
+	if scCache.count >= maxSchemaCacheEntries {
+		scCache.items = make(map[reflect.Type]*Schema, 256)
+		scCache.count = 0
 	}
+	if _, ok := scCache.items[t]; !ok {
+		scCache.items[t] = s
+		scCache.count++
+	}
+	scCache.mu.Unlock()
 
 	e.s = s
 	e.err = nil
 	close(e.done)
-	parseGroup.Delete(t)
+	pg.mu.Lock()
+	delete(pg.items, t)
+	pg.mu.Unlock()
 	return s, nil
 }
 
@@ -258,46 +266,13 @@ func parseStructFields(s *Schema, t reflect.Type, parentIndex []int) {
 	}
 }
 
-// indexPool is used to reuse index slices for nested struct fields.
-var indexPool = sync.Pool{
-	New: func() any {
-		b := make([]int, 0, 8)
-		return &b
-	},
-}
 
-const maxPooledIndexDepth = 16
 
 func appendIndex(parent []int, i int) []int {
-	if len(parent) == 0 {
-		return []int{i}
-	}
-
-	// For shallow nesting, use stack allocation
-	if len(parent) < 4 {
-		idx := make([]int, len(parent)+1)
-		copy(idx, parent)
-		idx[len(parent)] = i
-		return idx
-	}
-
-	// For deeper nesting, use pool
-	bufPtr := indexPool.Get().(*[]int)
-	buf := (*bufPtr)[:0]
-	if cap(buf) < len(parent)+1 {
-		buf = make([]int, 0, len(parent)+1)
-	}
-	buf = append(buf, parent...)
-	buf = append(buf, i)
-
-	result := make([]int, len(buf))
-	copy(result, buf)
-
-	if cap(buf) <= maxPooledIndexDepth {
-		*bufPtr = buf
-		indexPool.Put(bufPtr)
-	}
-	return result
+	idx := make([]int, len(parent)+1)
+	copy(idx, parent)
+	idx[len(parent)] = i
+	return idx
 }
 
 func parseDBTag(tag string) (string, map[string]bool) {
@@ -321,8 +296,14 @@ func defaultTableName(t reflect.Type) string {
 	return ToSnake(t.Name())
 }
 
-var snakeCache sync.Map
-var snakeCacheCount atomic.Int64
+type snakeCache struct {
+	mu    sync.RWMutex
+	items map[string]string
+	count int
+}
+
+var snCache = &snakeCache{items: make(map[string]string, 256)}
+
 const maxSnakeCacheSize = 1024
 
 // ToSnake converts a string to snake_case.
@@ -333,9 +314,12 @@ func ToSnake(s string) string {
 
 	// Check cache first for common identifiers
 	if len(s) <= 32 {
-		if cached, ok := snakeCache.Load(s); ok {
-			return cached.(string)
+		snCache.mu.RLock()
+		if cached, ok := snCache.items[s]; ok {
+			snCache.mu.RUnlock()
+			return cached
 		}
+		snCache.mu.RUnlock()
 	}
 
 	// Fast path: check if all ASCII and already snake_case
@@ -356,11 +340,14 @@ func ToSnake(s string) string {
 	if allASCII && !hasUpper {
 		// Cache common identifiers
 		if len(s) <= 32 {
-			if snakeCacheCount.Load() < maxSnakeCacheSize {
-				if _, loaded := snakeCache.LoadOrStore(s, s); !loaded {
-					snakeCacheCount.Add(1)
+			snCache.mu.Lock()
+			if snCache.count < maxSnakeCacheSize {
+				if _, ok := snCache.items[s]; !ok {
+					snCache.items[s] = s
+					snCache.count++
 				}
 			}
+			snCache.mu.Unlock()
 		}
 		return s
 	}
@@ -374,21 +361,21 @@ func ToSnake(s string) string {
 
 	// Cache the result for common identifiers
 	if len(s) <= 32 && len(result) <= 64 {
-		if snakeCacheCount.Load() < maxSnakeCacheSize {
-			if _, loaded := snakeCache.LoadOrStore(s, result); !loaded {
-				snakeCacheCount.Add(1)
+		snCache.mu.Lock()
+		if snCache.count < maxSnakeCacheSize {
+			if _, ok := snCache.items[s]; !ok {
+				snCache.items[s] = result
+				snCache.count++
 			}
 		}
+		snCache.mu.Unlock()
 	}
 	return result
 }
 
-// toSnakeASCII converts an ASCII string to snake_case using pooled buffer.
+// toSnakeASCII converts an ASCII string to snake_case.
 func toSnakeASCII(s string) string {
-	// Get buffer from pool
-	bufPtr := snakeBufferPool.Get().(*[]byte)
-	buf := (*bufPtr)[:0]
-
+	buf := make([]byte, 0, len(s)+4)
 	prevLower := false
 	for i := 0; i < len(s); i++ {
 		c := s[i]
@@ -413,15 +400,7 @@ func toSnakeASCII(s string) string {
 		}
 	}
 
-	result := string(buf)
-
-	// Return buffer to pool if capacity is reasonable
-	if cap(buf) <= 256 {
-		*bufPtr = buf
-		snakeBufferPool.Put(bufPtr)
-	}
-
-	return result
+	return string(buf)
 }
 
 // toSnakeUnicode converts a Unicode string to snake_case.

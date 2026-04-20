@@ -3,41 +3,34 @@ package builder
 import (
 	"errors"
 	"strings"
-	"sync"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/nikola-chen/corm/dialect"
 )
 
-var stringBuilderPool = sync.Pool{
-	New: func() any {
-		b := new(strings.Builder)
-		b.Grow(512)
-		return b
-	},
-}
-
-const maxPooledStringBuilderCap = 64 * 1024
-
 func getBuffer() *strings.Builder {
-	buf := stringBuilderPool.Get().(*strings.Builder)
-	buf.Reset()
-	// Only grow if capacity is too small
-	if buf.Cap() < 512 {
-		buf.Grow(512)
-	}
+	buf := new(strings.Builder)
+	buf.Grow(512)
 	return buf
 }
 
 func putBuffer(buf *strings.Builder) {
-	if buf == nil {
-		return
+	// No-op without pool
+}
+
+// trimSpaceASCII trims ASCII whitespace from both ends of s.
+// It is faster than strings.TrimSpace for ASCII-only strings.
+func trimSpaceASCII(s string) string {
+	start := 0
+	for start < len(s) && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
 	}
-	if buf.Cap() > maxPooledStringBuilderCap {
-		return
+	end := len(s)
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
 	}
-	stringBuilderPool.Put(buf)
+	return s[start:end]
 }
 
 func isSimpleIdent(s string) bool {
@@ -108,16 +101,7 @@ func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
 }
 
 func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string, bool) {
-	// Inline TrimSpace to avoid function call overhead
-	start := 0
-	for start < len(ident) && (ident[start] == ' ' || ident[start] == '\t' || ident[start] == '\n' || ident[start] == '\r') {
-		start++
-	}
-	end := len(ident)
-	for end > start && (ident[end-1] == ' ' || ident[end-1] == '\t' || ident[end-1] == '\n' || ident[end-1] == '\r') {
-		end--
-	}
-	ident = ident[start:end]
+	ident = trimSpaceASCII(ident)
 
 	if ident == "" {
 		return "", false

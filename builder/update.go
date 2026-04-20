@@ -144,6 +144,24 @@ func (b *UpdateBuilder) Set(column string, value any) *UpdateBuilder {
 	return b
 }
 
+// SetExpr sets a column to a SQL expression.
+// Example: SetExpr("updated_at", clause.Raw("NOW()")) generates "updated_at = NOW()"
+func (b *UpdateBuilder) SetExpr(column string, expr clause.Expr) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	if b.batch != nil {
+		b.err = errors.New("corm: cannot use SetExpr on batch update, use Models/Maps")
+		return b
+	}
+	if _, ok := quoteColumnStrict(b.d, column); !ok {
+		b.err = errors.New("corm: invalid column identifier")
+		return b
+	}
+	b.sets = append(b.sets, setItem{column: column, value: expr})
+	return b
+}
+
 // Increment increments a column by the specified amount.
 // Example: Increment("count", 1) generates "count = count + ?"
 func (b *UpdateBuilder) Increment(column string, amount any) *UpdateBuilder {

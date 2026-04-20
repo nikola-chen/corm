@@ -93,9 +93,7 @@ func In(column string, values ...any) Expr {
 			if len(s) == 0 {
 				return Expr{SQL: "1=0", Args: emptyArgs}
 			}
-			flattened := make([]any, len(s))
-			copy(flattened, s)
-			return buildIn(column, flattened)
+			return buildIn(column, s)
 		case []string:
 			if len(s) == 0 {
 				return Expr{SQL: "1=0", Args: emptyArgs}
@@ -133,6 +131,15 @@ func In(column string, values ...any) Expr {
 			}
 			return buildIn(column, flattened)
 		case []int32:
+			if len(s) == 0 {
+				return Expr{SQL: "1=0", Args: emptyArgs}
+			}
+			flattened := make([]any, len(s))
+			for i := range s {
+				flattened[i] = s[i]
+			}
+			return buildIn(column, flattened)
+		case []uint32:
 			if len(s) == 0 {
 				return Expr{SQL: "1=0", Args: emptyArgs}
 			}

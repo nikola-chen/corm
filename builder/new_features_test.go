@@ -195,3 +195,86 @@ func TestNewFeatures_CountExists(t *testing.T) {
 		t.Errorf("expected default select")
 	}
 }
+
+func TestInsertIgnore(t *testing.T) {
+	bd := builder.MySQL()
+
+	q := bd.Insert("users").Columns("id", "name").Values(1, "Alice").InsertIgnore()
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "INSERT IGNORE INTO `users` (`id`, `name`) VALUES (?, ?)"
+	if sqlStr != wantSQL {
+		t.Errorf("\ngot : %s\nwant: %s", sqlStr, wantSQL)
+	}
+	if !reflect.DeepEqual(args, []any{1, "Alice"}) {
+		t.Errorf("args mismatch: got %v", args)
+	}
+
+	bdPg := builder.Postgres()
+	qPg := bdPg.Insert("users").Columns("id").Values(1).InsertIgnore()
+	_, _, errPg := qPg.SQL()
+	if errPg == nil {
+		t.Error("expected error for InsertIgnore on Postgres")
+	}
+}
+
+func TestSetExpr(t *testing.T) {
+	bd := builder.MySQL()
+
+	q := bd.Update("users").
+		SetExpr("updated_at", clause.Raw("NOW()")).
+		Set("name", "Alice").
+		WhereEq("id", 1)
+
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	wantSQL := "UPDATE `users` SET `updated_at` = NOW(), `name` = ? WHERE (`id` = ?)"
+	if sqlStr != wantSQL {
+		t.Errorf("\ngot : %s\nwant: %s", sqlStr, wantSQL)
+	}
+	if !reflect.DeepEqual(args, []any{"Alice", 1}) {
+		t.Errorf("args mismatch: got %v", args)
+	}
+}
+
+func TestCountExpr(t *testing.T) {
+	bd := builder.Postgres()
+
+	q := bd.Select("id").From("users").WhereEq("status", 1)
+	sqlStr, args, err := q.CountExprSQL(clause.Raw("COUNT(DISTINCT \"email\")"))
+	if err != nil {
+		t.Fatalf("CountExprSQL() error: %v", err)
+	}
+
+	wantSQL := `SELECT COUNT(DISTINCT "email") FROM "users" WHERE ("status" = $1)`
+	if sqlStr != wantSQL {
+		t.Errorf("\ngot : %s\nwant: %s", sqlStr, wantSQL)
+	}
+	if !reflect.DeepEqual(args, []any{1}) {
+		t.Errorf("args mismatch: got %v", args)
+	}
+}
+
+func TestCountExprWithGroupBy(t *testing.T) {
+	bd := builder.Postgres()
+
+	q := bd.Select("status").From("users").WhereExpr(clause.Gt("id", 0)).GroupBy("status")
+	sqlStr, args, err := q.CountExprSQL(clause.Raw("COUNT(*)"))
+	if err != nil {
+		t.Fatalf("CountExprSQL() error: %v", err)
+	}
+
+	wantSQL := `SELECT COUNT(*) FROM (SELECT "status" FROM "users" WHERE (id > $1) GROUP BY "status") AS sub`
+	if sqlStr != wantSQL {
+		t.Errorf("\ngot : %s\nwant: %s", sqlStr, wantSQL)
+	}
+	if !reflect.DeepEqual(args, []any{0}) {
+		t.Errorf("args mismatch: got %v", args)
+	}
+}
