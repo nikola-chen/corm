@@ -125,6 +125,27 @@ func (t *Tx) Delete(table string) *builder.DeleteBuilder {
 	return builder.Delete(t.executor(), t.dialect, table)
 }
 
+// RawExec executes a raw SQL query and returns the result.
+func (t *Tx) RawExec(ctx context.Context, sqlStr string, args ...any) (sql.Result, error) {
+	return t.tx.ExecContext(ctx, sqlStr, args...)
+}
+
+// RawQuery executes a raw SQL query and returns the rows.
+func (t *Tx) RawQuery(ctx context.Context, sqlStr string, args ...any) (*sql.Rows, error) {
+	return t.tx.QueryContext(ctx, sqlStr, args...)
+}
+
+// RawQueryFunc executes a raw SQL query and calls fn with the resulting rows.
+// It ensures rows are properly closed after fn returns.
+func (t *Tx) RawQueryFunc(ctx context.Context, sqlStr string, fn func(*sql.Rows) error, args ...any) error {
+	rows, err := t.tx.QueryContext(ctx, sqlStr, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	return fn(rows)
+}
+
 // Builder returns a builder.API that is pre-bound to this Tx's dialect and executor.
 func (t *Tx) Builder() *builder.API {
 	return builder.NewAPI(t.dialect, t.executor())

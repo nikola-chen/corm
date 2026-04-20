@@ -16,6 +16,16 @@
 - **安全与防护**：内置 SQL 注入防护（参数绑定）与标识符安全引用。
 - **高性能**：针对结果集扫描进行了反射优化和内存分配缩减。
 
+## 功能范围
+
+`corm` 的功能范围仅限于提供 SQL 中的以下功能：
+- **DQL** (数据查询语言)：如 `SELECT` 操作。
+- **DML** (数据操纵语言)：如 `INSERT`、`UPDATE`、`DELETE` 操作。
+
+它**不提供**以下功能：
+- **DDL** (数据定义语言)：如创建/删除表、索引或修改表结构。
+- **DCL** (数据控制语言)：如用户授权或撤销权限。
+
 ## 面向 AI/Agent
 
 如果你正在使用外部 AI 自动编程工具或 AI Agent 来生成/修改使用 `corm` 的代码，建议先阅读 [AI_AGENT_GUIDE.md](file:///Users/macrochen/Codespace/AI/corm/AI_AGENT_GUIDE.md)。该文档提供安全约束、模块地图与可复制的代码模板，能显著降低生成代码的歧义与风险。
@@ -599,6 +609,26 @@ e.Select("name").From("users").Distinct().Limit(5).All(ctx, &names)
 ```
 
 ## 更新日志
+
+### v2.0.0
+
+**核心升级：**
+- 内部完全迁移到 Go 1.26 标准（依赖 `slices`, `maps` 等），带来更出色的内联和内存管理。
+- 移除了 builder 层的 `sync.Pool` 缓存对象复用机制。由于最新 Go 版本的底层栈分配优化，这减少了内存不可抗力下的泄露风险，并提升了常规执行流控制。
+
+**功能补充 (DQL/DML)：**
+- 添加 `Count()`、`Exists()` 的原生一键执行 API。
+- 添加 `OnConflict().DoUpdate().DoNothing()` 支持更为明确的 Upsert 语句（自动处理 PostgreSQL / MySQL 方言）。
+- 添加 `WhereBetween`, `WhereNotIn`, `WhereNotLike`, `WhereExists`, `WhereNotExists` 等常用扩展语法。
+- Update 添加 `JoinAs`, `FromAs`, `Returning`。
+- Select 增加 `ForShare`, `Intersect`, `Except` 支持。
+- Delete 增加 `Using`, `UsingAs`, `Returning`。
+- Engine / Tx 层面暴露直接底层 `RawExec`, `RawQuery`, `RawQueryFunc`。
+
+**安全强化：**
+- 对 Dialect 的 `quoteCache`, `pgQuoteCache` 和 `snakeCache` 增加了强缓存上限机制（最大 10000 key）并配合原子操作定时驱逐，防御潜在内存耗尽攻击。
+- 配置增加 `ConnMaxIdleTime` 限定连接安全存活时间。
+- 对所有的 Select Exec 等加了空指针防护机制。
 
 ### v1.2.2
 

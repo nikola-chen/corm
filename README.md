@@ -16,6 +16,14 @@ Concurrency note:
 - **Safety & Security**: Built-in SQL injection protection (parameter binding) and safe identifier quoting.
 - **Performance**: Optimized reflection and allocation reduction for result scanning.
 
+## Functional Scope
+
+`corm` is strictly limited to supporting **DQL** (Data Query Language, such as `SELECT`) and **DML** (Data Manipulation Language, such as `INSERT`, `UPDATE`, `DELETE`) operations. 
+
+It does **NOT** provide:
+- **DDL** (Data Definition Language): Creating/dropping tables, indexes, or altering schemas.
+- **DCL** (Data Control Language): Granting or revoking permissions.
+
 ## For AI/Agents
 
 If you're using an AI coding tool or an AI agent to generate code with `corm`, read [AI_AGENT_GUIDE.md](file:///Users/macrochen/Codespace/AI/corm/AI_AGENT_GUIDE.md) first. It includes safe SQL rules, module map, and copy-paste templates.
@@ -626,6 +634,24 @@ err := e.Select("id", "name").
 ```
 
 ## Changelog
+
+### v2.0.0
+
+**Core Upgrades:**
+- Updated internal engine to use Go 1.25/1.26 standards (`slices`, `maps`) with advanced memory management.
+- Re-architected builder logic to use Go's modernized stack allocation capabilities, discarding outdated `sync.Pool` usage to resolve lingering pool leak limits and unexpected behaviors under pressure.
+
+**DQL & DML Enhancements:**
+- Added structured Upsert functionality (`OnConflict().DoUpdate()/DoNothing()`) uniformly handling Postgres and MySQL variations.
+- Added extensive Subquery checks and conditions (`Exists`, `NotExists`, `Count`).
+- Added robust condition expansions (`WhereBetween`, `WhereNotIn`, `WhereNotLike`).
+- Added SQL standard clauses across updates and deletes including `JoinAs`, `FromAs`, `Using`, `UsingAs`, and extensive `Returning` implementations.
+- Exposed explicit `RawExec`, `RawQuery`, and `RawQueryFunc` APIs seamlessly within `Engine` and `Tx` contexts.
+
+**Security Hardening:**
+- Secured Dialect reflection caches with an atomic ceiling block (10,000 keys limit) paired with LRU-style eviction implementations to permanently resolve runtime memory bloating threats.
+- Added complete coverage of connection pooling limit attributes (`ConnMaxIdleTime`).
+- Injected strictly safe nil checks enforcing builder outputs against faulty executors.
 
 ### v1.2.2
 

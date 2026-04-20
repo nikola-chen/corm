@@ -20,8 +20,10 @@
 - 更新 map（单行）：`e.Update("users").Map(map[string]any{...}).Where("id = ?", 1).Exec(ctx)`
 - 批量更新（结构体切片）：`e.Update("").Models([]User{...}).Exec(ctx)`（单条 SQL，CASE WHEN）
 - 删除：`e.Delete("users").Where("id = ?", 1).Exec(ctx)`（默认禁止无 WHERE 全表删除）
+- PostgreSQL RETURNING：`e.Update("users").Set("status", 1).Where("id = 1").Returning("id").QueryFunc(...)`
+- Upsert (MySQL/PostgreSQL)：`e.Insert("users").Model(&u).OnConflict("id").DoUpdate(map[string]any{"name": u.Name}).Exec(ctx)`
+- Raw Exec：`e.RawExec(ctx, "UPDATE users SET age = ?", 18)`
 - 业务侧统一封装（推荐）：`qb := e.Builder()` 或 `qb := tx.Builder()`（预绑定 dialect + executor，便于在你的 DAO/Repository 层复用）
-- 仅构建 SQL（不执行）：`qb := builder.MySQL(); sql, args, err := qb.Update("users").Set("x", 1).Where("id = ?", 1).SQL()`（`Exec/Query` 需要 Executor）
 - 仅构建 SQL（driver 运行时确定）：`qb := builder.Dialect(driverName)` 或 `qb := builder.MustDialect(driverName)`
 - 绑定 executor + dialect（driver 运行时确定）：`qb := builder.For(driverName, exec)` 或 `qb := builder.MustFor(driverName, exec)`
 - 事务：`e.Transaction(ctx, func(tx *engine.Tx) error { ... })`
@@ -536,7 +538,26 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v1.2.2`
+- 当前版本：`v2.0.0`
+
+### v2.0.0 更新内容
+
+**核心升级：**
+- 内部完全迁移到 Go 1.26 标准（依赖 `slices`, `maps` 等），带来更出色的内联和内存管理。
+- 移除了 builder 层的 `sync.Pool` 缓存对象复用机制。由于最新 Go 版本的底层栈分配优化，这减少了内存不可抗力下的泄露风险，并提升了常规执行流控制。
+
+**功能补充 (DQL/DML)：**
+- 添加 `Count()`、`Exists()` 的原生一键执行 API。
+- 添加 `OnConflict().DoUpdate().DoNothing()` 支持更为明确的 Upsert 语句（自动处理 PostgreSQL / MySQL 方言）。
+- 添加 `WhereBetween`, `WhereNotIn`, `WhereNotLike`, `WhereExists`, `WhereNotExists` 等常用扩展语法。
+- Update 添加 `JoinAs`, `FromAs`。
+- Select 增加 `ForShare`, `Intersect`, `Except` 支持。
+- Engine / Tx 层面暴露直接底层 `RawExec`, `RawQuery`, `RawQueryFunc`。
+
+**安全强化：**
+- 对 Dialect 的 `quoteCache` 增加了强缓存上限机制（最大 10000 key）并配合原子操作定时驱逐，防御潜在内存耗尽攻击。
+- 配置增加 `ConnMaxIdleTime` 限定连接安全存活时间。
+- 对所有的 Select Exec 等加了空指针防护机制。
 
 ### v1.2.2 更新内容
 

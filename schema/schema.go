@@ -321,10 +321,8 @@ func defaultTableName(t reflect.Type) string {
 	return ToSnake(t.Name())
 }
 
-// snakeCache caches snake_case conversions to avoid repeated allocations.
 var snakeCache sync.Map
-
-// maxSnakeCacheSize limits the cache size to prevent unbounded growth.
+var snakeCacheCount atomic.Int64
 const maxSnakeCacheSize = 1024
 
 // ToSnake converts a string to snake_case.
@@ -357,8 +355,12 @@ func ToSnake(s string) string {
 	// If already snake_case (no uppercase), return as-is
 	if allASCII && !hasUpper {
 		// Cache common identifiers
-		if len(s) <= 32 && len(s) > 0 {
-			snakeCache.Store(s, s)
+		if len(s) <= 32 {
+			if snakeCacheCount.Load() < maxSnakeCacheSize {
+				if _, loaded := snakeCache.LoadOrStore(s, s); !loaded {
+					snakeCacheCount.Add(1)
+				}
+			}
 		}
 		return s
 	}
@@ -372,7 +374,11 @@ func ToSnake(s string) string {
 
 	// Cache the result for common identifiers
 	if len(s) <= 32 && len(result) <= 64 {
-		snakeCache.Store(s, result)
+		if snakeCacheCount.Load() < maxSnakeCacheSize {
+			if _, loaded := snakeCache.LoadOrStore(s, result); !loaded {
+				snakeCacheCount.Add(1)
+			}
+		}
 	}
 	return result
 }

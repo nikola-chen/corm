@@ -24,6 +24,8 @@ type Config struct {
 	MaxIdleConns int
 	// ConnMaxLifetime sets the maximum amount of time a connection may be reused.
 	ConnMaxLifetime time.Duration
+	// ConnMaxIdleTime sets the maximum amount of time a connection may be idle before being closed.
+	ConnMaxIdleTime time.Duration
 	// LogSQL enables SQL logging.
 	LogSQL bool
 	// LogArgs enables argument logging in SQL logs.
@@ -109,6 +111,9 @@ func WithDB(db *sql.DB, driverName string, opts ...Option) (*Engine, error) {
 	if e.cfg.ConnMaxLifetime > 0 {
 		e.db.SetConnMaxLifetime(e.cfg.ConnMaxLifetime)
 	}
+	if e.cfg.ConnMaxIdleTime > 0 {
+		e.db.SetConnMaxIdleTime(e.cfg.ConnMaxIdleTime)
+	}
 
 	return e, nil
 }
@@ -189,6 +194,27 @@ func (e *Engine) Update(table string) *builder.UpdateBuilder {
 // Delete creates a new DeleteBuilder.
 func (e *Engine) Delete(table string) *builder.DeleteBuilder {
 	return builder.Delete(e.executor(), e.dialect, table)
+}
+
+// RawExec executes a raw SQL query and returns the result.
+func (e *Engine) RawExec(ctx context.Context, sqlStr string, args ...any) (sql.Result, error) {
+	return e.executor().ExecContext(ctx, sqlStr, args...)
+}
+
+// RawQuery executes a raw SQL query and returns the rows.
+func (e *Engine) RawQuery(ctx context.Context, sqlStr string, args ...any) (*sql.Rows, error) {
+	return e.executor().QueryContext(ctx, sqlStr, args...)
+}
+
+// RawQueryFunc executes a raw SQL query and calls fn with the resulting rows.
+// It ensures rows are properly closed after fn returns.
+func (e *Engine) RawQueryFunc(ctx context.Context, sqlStr string, fn func(*sql.Rows) error, args ...any) error {
+	rows, err := e.executor().QueryContext(ctx, sqlStr, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	return fn(rows)
 }
 
 // Builder returns a builder.API that is pre-bound to this Engine's dialect and executor.

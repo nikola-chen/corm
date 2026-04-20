@@ -330,3 +330,42 @@ func join(op string, exprs ...Expr) Expr {
 	}
 	return Expr{SQL: strings.Join(parts, " "+op+" "), Args: args}
 }
+
+// NotIn creates a NOT IN expression: "column NOT IN (?, ?, ...)"
+// It automatically flattens slice arguments.
+func NotIn(column string, values ...any) Expr {
+	inExpr := In(column, values...)
+	if inExpr.SQL == "1=0" {
+		return Expr{SQL: "1=1", Args: emptyArgs}
+	}
+	return Expr{SQL: column + " NOT" + strings.TrimPrefix(inExpr.SQL, column), Args: inExpr.Args}
+}
+
+// NotLike creates a NOT LIKE expression: "column NOT LIKE value"
+func NotLike(column string, value any) Expr {
+	return Expr{SQL: column + " NOT LIKE ?", Args: []any{value}}
+}
+
+// Between creates a BETWEEN expression: "column BETWEEN lo AND hi"
+func Between(column string, lo, hi any) Expr {
+	return Expr{SQL: column + " BETWEEN ? AND ?", Args: []any{lo, hi}}
+}
+
+// Exists creates an EXISTS expression: "EXISTS (subquery)"
+// The subSQL must be a trusted subquery string.
+func Exists(subSQL string, args ...any) Expr {
+	return Expr{SQL: "EXISTS (" + subSQL + ")", Args: args}
+}
+
+// NotExists creates a NOT EXISTS expression: "NOT EXISTS (subquery)"
+func NotExists(subSQL string, args ...any) Expr {
+	return Expr{SQL: "NOT EXISTS (" + subSQL + ")", Args: args}
+}
+
+// Coalesce creates a COALESCE expression with the alias.
+func Coalesce(alias string, exprs ...string) Expr {
+	if len(exprs) == 0 {
+		return Expr{}
+	}
+	return Expr{SQL: "COALESCE(" + strings.Join(exprs, ", ") + ") AS " + alias, Args: emptyArgs}
+}

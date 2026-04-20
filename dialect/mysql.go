@@ -3,13 +3,11 @@ package dialect
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
-// quoteCache caches quoted identifiers to avoid repeated allocations.
-// Key: ident string, Value: quoted string
 var quoteCache sync.Map
-
-// maxQuoteCacheSize limits the cache size to prevent unbounded growth.
+var quoteCacheCount atomic.Int64
 const maxQuoteCacheSize = 2048
 
 type mysqlDialect struct{}
@@ -31,9 +29,12 @@ func (d mysqlDialect) QuoteIdent(ident string) string {
 	// Fast path: no backticks in ident
 	if strings.IndexByte(ident, '`') == -1 {
 		result := "`" + ident + "`"
-		// Cache common identifiers (reasonable length)
 		if len(ident) <= 64 {
-			quoteCache.Store(ident, result)
+			if quoteCacheCount.Load() < maxQuoteCacheSize {
+				if _, loaded := quoteCache.LoadOrStore(ident, result); !loaded {
+					quoteCacheCount.Add(1)
+				}
+			}
 		}
 		return result
 	}

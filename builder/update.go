@@ -4,9 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"sort"
+	"slices"
 	"strings"
-	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
@@ -18,18 +17,18 @@ type setItem struct {
 	value  any
 }
 
-const (
-	updateWhereExpr = iota
-	updateWhereSubquery
-)
+
 
 // UpdateBuilder builds UPDATE statements.
 type UpdateBuilder struct {
 	exec  Executor
 	d     dialect.Dialect
 	table string
+	joins []selectJoinItem
+	fromAlias string
 	sets  []setItem
 	where whereBuilder
+	returning []string
 	err   error
 
 	includePrimaryKey bool
@@ -43,65 +42,20 @@ type UpdateBuilder struct {
 	batch *batchUpdateBuilder
 }
 
-// updateBuilderPool reduces allocations by reusing UpdateBuilder instances.
-var updateBuilderPool = sync.Pool{
-	New: func() any {
-		return &UpdateBuilder{}
-	},
-}
-
-// maxPooledUpdateSets limits the capacity of sets slice to prevent memory bloat.
-const maxPooledUpdateSets = 64
-
 func newUpdate(exec Executor, d dialect.Dialect, table string) *UpdateBuilder {
 	table = strings.TrimSpace(table)
-	b := updateBuilderPool.Get().(*UpdateBuilder)
-	b.exec = exec
-	b.d = d
-	b.table = table
-	if cap(b.sets) > maxPooledUpdateSets {
-		b.sets = nil
-	} else {
-		b.sets = b.sets[:0]
+	b := &UpdateBuilder{
+		exec:  exec,
+		d:     d,
+		table: table,
+		where: whereBuilder{d: d, items: make([]whereItem, 0, 4)},
 	}
-	b.where.d = d
-	if cap(b.where.items) < 4 {
-		b.where.items = make([]whereItem, 0, 4)
-	} else {
-		b.where.items = b.where.items[:0]
-	}
-	b.err = nil
-	b.includePrimaryKey = false
-	b.includeAuto = false
-	b.includeReadonly = false
-	b.includeZero = false
-	b.allowEmptyWhere = false
-	b.limit = nil
-	b.batch = nil
 	if table != "" && d != nil {
 		if _, err := validateTable(d, table); err != nil {
 			b.err = err
 		}
 	}
 	return b
-}
-
-// putUpdateBuilder returns an UpdateBuilder to the pool for reuse.
-func putUpdateBuilder(b *UpdateBuilder) {
-	if b == nil {
-		return
-	}
-	if cap(b.sets) > maxPooledUpdateSets ||
-		cap(b.where.items) > maxPooledWhereItems {
-		return
-	}
-	b.exec = nil
-	b.d = nil
-	b.batch = nil
-	for i := range b.where.items {
-		b.where.items[i].sub = nil
-	}
-	updateBuilderPool.Put(b)
 }
 
 // AllowEmptyWhere allows UPDATE without a WHERE clause.
@@ -242,7 +196,7 @@ func (b *UpdateBuilder) Map(values map[string]any) *UpdateBuilder {
 	for k := range values {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 
 	for _, k := range keys {
 		if _, ok := quoteColumnStrict(b.d, k); !ok {
@@ -251,6 +205,60 @@ func (b *UpdateBuilder) Map(values map[string]any) *UpdateBuilder {
 		}
 		b.sets = append(b.sets, setItem{column: k, value: values[k]})
 	}
+	return b
+}
+
+// JoinAs adds a JOIN to the UPDATE statement (MySQL only)
+func (b *UpdateBuilder) JoinAs(table, alias string, onExpr clause.Expr) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	qTable, ok := quoteIdentStrict(b.d, table)
+	if !ok {
+		b.err = errors.New("corm: invalid table identifier in join")
+		return b
+	}
+	alias = strings.TrimSpace(alias)
+	if !isSimpleIdent(alias) {
+		b.err = errors.New("corm: invalid alias identifier")
+		return b
+	}
+	joinSQL := "JOIN " + qTable + " AS " + alias + " ON " + onExpr.SQL
+	b.joins = append(b.joins, selectJoinItem{kind: selectJoinExpr, expr: clause.Expr{SQL: joinSQL, Args: onExpr.Args}})
+	return b
+}
+
+// FromAs adds a FROM clause to the UPDATE statement (Postgres only)
+func (b *UpdateBuilder) FromAs(table, alias string) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	qTable, ok := quoteIdentStrict(b.d, table)
+	if !ok {
+		b.err = errors.New("corm: invalid table identifier in from")
+		return b
+	}
+	alias = strings.TrimSpace(alias)
+	if !isSimpleIdent(alias) {
+		b.err = errors.New("corm: invalid alias identifier")
+		return b
+	}
+	b.fromAlias = qTable + " AS " + alias
+	return b
+}
+
+// Returning adds a RETURNING clause for Postgres.
+func (b *UpdateBuilder) Returning(columns ...string) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	for _, c := range columns {
+		if _, ok := quoteSelectColumnStrict(b.d, c); !ok {
+			b.err = errors.New("corm: invalid column identifier in returning")
+			return b
+		}
+	}
+	b.returning = append(b.returning, columns...)
 	return b
 }
 
@@ -400,6 +408,96 @@ func (b *UpdateBuilder) WhereExpr(e clause.Expr) *UpdateBuilder {
 	return b
 }
 
+func (b *UpdateBuilder) WhereNotIn(column string, args ...any) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	if b.batch != nil {
+		b.batch.where.WhereNotIn(column, args...)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
+		return b
+	}
+	b.where.WhereNotIn(column, args...)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+func (b *UpdateBuilder) WhereBetween(column string, lo, hi any) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	if b.batch != nil {
+		b.batch.where.WhereBetween(column, lo, hi)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
+		return b
+	}
+	b.where.WhereBetween(column, lo, hi)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+func (b *UpdateBuilder) WhereNotLike(column string, value any) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	if b.batch != nil {
+		b.batch.where.WhereNotLike(column, value)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
+		return b
+	}
+	b.where.WhereNotLike(column, value)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+func (b *UpdateBuilder) WhereExists(sub *SelectBuilder) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	if b.batch != nil {
+		b.batch.where.WhereExists(sub)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
+		return b
+	}
+	b.where.WhereExists(sub)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+func (b *UpdateBuilder) WhereNotExists(sub *SelectBuilder) *UpdateBuilder {
+	if b.err != nil {
+		return b
+	}
+	if b.batch != nil {
+		b.batch.where.WhereNotExists(sub)
+		if b.batch.where.err != nil {
+			b.err = b.batch.where.err
+		}
+		return b
+	}
+	b.where.WhereNotExists(sub)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
 func (b *UpdateBuilder) Key(column string) *UpdateBuilder {
 	if b.err != nil {
 		return b
@@ -501,17 +599,24 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 		return "", nil, errors.New("corm: invalid table identifier")
 	}
 	buf.WriteString(qTable)
-	buf.WriteString(" SET ")
 
+	// MySQL JOINs
+	if len(b.joins) > 0 {
+		for _, j := range b.joins {
+			buf.WriteString(" ")
+			if err := ab.appendExpr(j.expr); err != nil {
+				return "", nil, err
+			}
+		}
+	}
+
+	buf.WriteString(" SET ")
 	for i, s := range b.sets {
 		if i > 0 {
 			buf.WriteString(", ")
 		}
-		col, ok := quoteColumnStrict(b.d, s.column)
-		if !ok {
-			return "", nil, errors.New("corm: invalid column identifier")
-		}
-		buf.WriteString(col)
+		q, _ := quoteSelectColumnStrict(b.d, s.column)
+		buf.WriteString(q)
 		buf.WriteString(" = ")
 
 		if e, ok := s.value.(clause.Expr); ok {
@@ -523,8 +628,16 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 		}
 	}
 
-	if err := b.where.appendWhere(buf, ab); err != nil {
-		return "", nil, err
+	// Postgres FROM
+	if b.fromAlias != "" {
+		buf.WriteString(" FROM ")
+		buf.WriteString(b.fromAlias)
+	}
+
+	if len(b.where.items) > 0 {
+		if err := b.where.appendWhere(buf, ab); err != nil {
+			return "", nil, err
+		}
 	}
 
 	if !b.allowEmptyWhere && len(b.where.items) == 0 {
@@ -540,6 +653,17 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 		}
 		buf.WriteString(" LIMIT ")
 		buf.WriteString(ab.add(*b.limit))
+	}
+
+	if len(b.returning) > 0 {
+		buf.WriteString(" RETURNING ")
+		for i, c := range b.returning {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			q, _ := quoteSelectColumnStrict(b.d, c)
+			buf.WriteString(q)
+		}
 	}
 
 	return buf.String(), ab.args, nil

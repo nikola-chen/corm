@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
-	"sync"
 
 	"github.com/nikola-chen/corm/clause"
 	"github.com/nikola-chen/corm/dialect"
@@ -16,61 +15,28 @@ type DeleteBuilder struct {
 	exec            Executor
 	d               dialect.Dialect
 	table           string
+	using           []string
 	where           whereBuilder
 	allowEmptyWhere bool
 	limit           *int
+	returning       []string
 	err             error
-}
-
-const (
-	deleteWhereExpr = iota
-	deleteWhereSubquery
-)
-
-// deleteBuilderPool reduces allocations by reusing DeleteBuilder instances.
-var deleteBuilderPool = sync.Pool{
-	New: func() any {
-		return &DeleteBuilder{}
-	},
 }
 
 func newDelete(exec Executor, d dialect.Dialect, table string) *DeleteBuilder {
 	table = strings.TrimSpace(table)
-	b := deleteBuilderPool.Get().(*DeleteBuilder)
-	b.exec = exec
-	b.d = d
-	b.table = table
-	b.where.d = d
-	if cap(b.where.items) < 4 {
-		b.where.items = make([]whereItem, 0, 4)
-	} else {
-		b.where.items = b.where.items[:0]
+	b := &DeleteBuilder{
+		exec:  exec,
+		d:     d,
+		table: table,
+		where: whereBuilder{d: d, items: make([]whereItem, 0, 4)},
 	}
-	b.allowEmptyWhere = false
-	b.limit = nil
-	b.err = nil
 	if table != "" && d != nil {
 		if _, err := validateTable(d, table); err != nil {
 			b.err = err
 		}
 	}
 	return b
-}
-
-// putDeleteBuilder returns a DeleteBuilder to the pool for reuse.
-func putDeleteBuilder(b *DeleteBuilder) {
-	if b == nil {
-		return
-	}
-	if cap(b.where.items) > maxPooledWhereItems {
-		return
-	}
-	b.exec = nil
-	b.d = nil
-	for i := range b.where.items {
-		b.where.items[i].sub = nil
-	}
-	deleteBuilderPool.Put(b)
 }
 
 func (b *DeleteBuilder) AllowEmptyWhere() *DeleteBuilder {
@@ -171,6 +137,109 @@ func (b *DeleteBuilder) WhereExpr(e clause.Expr) *DeleteBuilder {
 	return b
 }
 
+func (b *DeleteBuilder) WhereNotIn(column string, args ...any) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.where.WhereNotIn(column, args...)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+func (b *DeleteBuilder) WhereBetween(column string, lo, hi any) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.where.WhereBetween(column, lo, hi)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+func (b *DeleteBuilder) WhereNotLike(column string, value any) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.where.WhereNotLike(column, value)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+func (b *DeleteBuilder) WhereExists(sub *SelectBuilder) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.where.WhereExists(sub)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+func (b *DeleteBuilder) WhereNotExists(sub *SelectBuilder) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.where.WhereNotExists(sub)
+	if b.where.err != nil {
+		b.err = b.where.err
+	}
+	return b
+}
+
+// Using adds a USING clause (PostgreSQL).
+func (b *DeleteBuilder) Using(table string) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	qTable, ok := quoteIdentStrict(b.d, table)
+	if !ok {
+		b.err = errors.New("corm: invalid table identifier in using")
+		return b
+	}
+	b.using = append(b.using, qTable)
+	return b
+}
+
+// UsingAs adds an aliased USING clause (PostgreSQL).
+func (b *DeleteBuilder) UsingAs(table, alias string) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	qTable, ok := quoteIdentStrict(b.d, table)
+	if !ok {
+		b.err = errors.New("corm: invalid table identifier in using")
+		return b
+	}
+	alias = strings.TrimSpace(alias)
+	if !isSimpleIdent(alias) {
+		b.err = errors.New("corm: invalid alias identifier")
+		return b
+	}
+	b.using = append(b.using, qTable+" AS "+alias)
+	return b
+}
+
+// Returning adds a RETURNING clause for Postgres.
+func (b *DeleteBuilder) Returning(columns ...string) *DeleteBuilder {
+	if b.err != nil {
+		return b
+	}
+	for _, c := range columns {
+		if _, ok := quoteSelectColumnStrict(b.d, c); !ok {
+			b.err = errors.New("corm: invalid column identifier in returning")
+			return b
+		}
+	}
+	b.returning = append(b.returning, columns...)
+	return b
+}
+
 // SQL generates the SQL query and arguments.
 func (b *DeleteBuilder) SQL() (string, []any, error) {
 	if b.err != nil {
@@ -195,6 +264,16 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 	}
 	buf.WriteString(qTable)
 
+	if len(b.using) > 0 {
+		buf.WriteString(" USING ")
+		for i, u := range b.using {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(u)
+		}
+	}
+
 	if err := b.where.appendWhere(buf, ab); err != nil {
 		return "", nil, err
 	}
@@ -211,6 +290,17 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 		}
 		buf.WriteString(" LIMIT ")
 		buf.WriteString(ab.add(*b.limit))
+	}
+
+	if len(b.returning) > 0 {
+		buf.WriteString(" RETURNING ")
+		for i, c := range b.returning {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			q, _ := quoteSelectColumnStrict(b.d, c)
+			buf.WriteString(q)
+		}
 	}
 
 	return buf.String(), ab.args, nil

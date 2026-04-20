@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 var postgresPlaceholders = [...]string{
@@ -11,8 +12,9 @@ var postgresPlaceholders = [...]string{
 	"$11", "$12", "$13", "$14", "$15", "$16", "$17", "$18", "$19", "$20",
 }
 
-// pgQuoteCache caches quoted identifiers for PostgreSQL.
 var pgQuoteCache sync.Map
+var pgQuoteCacheCount atomic.Int64
+const maxPgQuoteCacheSize = 2048
 
 type postgresDialect struct{}
 
@@ -38,9 +40,12 @@ func (d postgresDialect) QuoteIdent(ident string) string {
 	// Fast path: no double quotes in ident
 	if strings.IndexByte(ident, '"') == -1 {
 		result := `"` + ident + `"`
-		// Cache common identifiers (reasonable length)
 		if len(ident) <= 64 {
-			pgQuoteCache.Store(ident, result)
+			if pgQuoteCacheCount.Load() < maxPgQuoteCacheSize {
+				if _, loaded := pgQuoteCache.LoadOrStore(ident, result); !loaded {
+					pgQuoteCacheCount.Add(1)
+				}
+			}
 		}
 		return result
 	}

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/nikola-chen/corm/dialect"
@@ -251,7 +251,7 @@ func (b *batchUpdateBuilder) mapsInternal(rows []map[string]any, lowerKeys bool)
 			}
 			cols = append(cols, k)
 		}
-		sort.Strings(cols)
+		slices.Sort(cols)
 		b.columns = cols
 	} else {
 		for _, c := range b.columns {
