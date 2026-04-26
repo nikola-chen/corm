@@ -41,6 +41,10 @@ func (t *Tx) Transaction(ctx context.Context, fn func(*Tx) error) (err error) {
 	t.savepointSeq++
 	name := fmt.Sprintf("sp_%d", t.savepointSeq)
 
+	if !isValidSavepointName(name) {
+		return fmt.Errorf("corm: invalid savepoint name: %s", name)
+	}
+
 	// Note: Not all databases support SAVEPOINT.
 	// We assume standard SQL behavior (Postgres, MySQL).
 	if _, err := t.tx.ExecContext(ctx, "SAVEPOINT "+name); err != nil {

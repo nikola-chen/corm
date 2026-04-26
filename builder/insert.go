@@ -338,7 +338,6 @@ func (b *InsertBuilder) SQL() (string, []any, error) {
 	buf := getBuffer()
 	defer putBuffer(buf)
 	ab := newArgBuilder(b.d, buf)
-	defer putArgBuilder(ab)
 	if err := b.appendSQL(buf, ab); err != nil {
 		return "", nil, err
 	}
@@ -410,7 +409,10 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 		}
 	}
 
-	if len(b.returning) > 0 && b.d.SupportsReturning() {
+	if len(b.returning) > 0 {
+		if !b.d.SupportsReturning() {
+			return errors.New("corm: RETURNING is not supported by " + b.d.Name() + " dialect")
+		}
 		buf.WriteString(" RETURNING ")
 		for i, c := range b.returning {
 			if i > 0 {

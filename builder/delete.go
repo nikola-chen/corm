@@ -231,8 +231,8 @@ func (b *DeleteBuilder) Returning(columns ...string) *DeleteBuilder {
 		return b
 	}
 	for _, c := range columns {
-		if _, ok := quoteSelectColumnStrict(b.d, c); !ok {
-			b.err = errors.New("corm: invalid column identifier in returning")
+		if _, ok := quoteColumnStrict(b.d, c); !ok {
+			b.err = errors.New("corm: invalid column identifier")
 			return b
 		}
 	}
@@ -255,7 +255,6 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 	buf := getBuffer()
 	defer putBuffer(buf)
 	ab := newArgBuilder(b.d, buf)
-	defer putArgBuilder(ab)
 
 	buf.WriteString("DELETE FROM ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)
@@ -293,13 +292,19 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 	}
 
 	if len(b.returning) > 0 {
+		if !b.d.SupportsReturning() {
+			return "", nil, errors.New("corm: RETURNING is not supported by " + b.d.Name() + " dialect")
+		}
 		buf.WriteString(" RETURNING ")
 		for i, c := range b.returning {
 			if i > 0 {
 				buf.WriteString(", ")
 			}
-			q, _ := quoteSelectColumnStrict(b.d, c)
-			buf.WriteString(q)
+			qCol, ok := quoteColumnStrict(b.d, c)
+			if !ok {
+				return "", nil, errors.New("corm: invalid column identifier")
+			}
+			buf.WriteString(qCol)
 		}
 	}
 

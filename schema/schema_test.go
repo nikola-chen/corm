@@ -61,18 +61,11 @@ func TestParseSchemaConcurrent(t *testing.T) {
 	out := make([]*schema.Schema, n)
 	errs := make([]error, n)
 
-	// Pre-load cache to ensure we test cache hit logic too if desired,
-	// but here we want to test concurrent parseSlow.
-	// Ensure cache is clean for this type? It's a new type definition inside function,
-	// so reflect.Type should be unique/new.
-
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := 0; i < n; i++ {
 		go func(i int) {
 			defer wg.Done()
-			// Use a small sleep to increase chance of overlap
-			// time.Sleep(time.Microsecond)
 			s, err := schema.Parse(ConcurrentUser{})
 			out[i] = s
 			errs[i] = err
@@ -217,6 +210,19 @@ func TestToSnakeUnicode(t *testing.T) {
 	}
 }
 
+func TestToSnakeUnicodeChars(t *testing.T) {
+	// Test with actual Unicode characters
+	result := schema.ToSnake("HelloWorld")
+	if result != "hello_world" {
+		t.Errorf("expected 'hello_world', got '%s'", result)
+	}
+
+	result2 := schema.ToSnake("HTTPServer")
+	if result2 != "http_server" {
+		t.Errorf("expected 'http_server', got '%s'", result2)
+	}
+}
+
 func TestParseTypeNil(t *testing.T) {
 	_, err := schema.ParseType(nil)
 	if err == nil {
@@ -338,6 +344,379 @@ func TestSchemaCacheEviction(t *testing.T) {
 		_, err := schema.Parse(TestStruct{})
 		if err != nil {
 			t.Fatalf("Parse error at %d: %v", i, err)
+		}
+	}
+}
+
+func TestSchemaError(t *testing.T) {
+	err := schema.ErrInvalidModel
+	if err == nil {
+		t.Fatalf("expected non-nil error")
+	}
+	if err.Error() != "corm: model must be struct or pointer to struct" {
+		t.Errorf("unexpected error message: %s", err.Error())
+	}
+}
+
+func TestParseSchemaWithTableNamer(t *testing.T) {
+	type CustomTable struct {
+		ID int `db:"id,pk"`
+	}
+
+	s, err := schema.Parse(CustomTable{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	// Default table name from struct name
+	if s.Table != "custom_table" {
+		t.Errorf("expected 'custom_table', got '%s'", s.Table)
+	}
+}
+
+func TestParseSchemaWithAutoTag(t *testing.T) {
+	type AutoModel struct {
+		ID   int    `db:"id,pk,auto"`
+		Name string `db:"name"`
+	}
+
+	s, err := schema.Parse(AutoModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	f := s.ByColumn["id"]
+	if f == nil {
+		t.Fatalf("missing column 'id'")
+	}
+	if !f.Auto {
+		t.Errorf("expected Auto to be true")
+	}
+	if !f.PrimaryKey {
+		t.Errorf("expected PrimaryKey to be true")
+	}
+}
+
+func TestParseSchemaWithReadonlyTag(t *testing.T) {
+	type ReadonlyModel struct {
+		ID      int    `db:"id,pk"`
+		Created string `db:"created,readonly"`
+	}
+
+	s, err := schema.Parse(ReadonlyModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	f := s.ByColumn["created"]
+	if f == nil {
+		t.Fatalf("missing column 'created'")
+	}
+	if !f.Readonly {
+		t.Errorf("expected Readonly to be true")
+	}
+}
+
+func TestParseSchemaWithIdentityTag(t *testing.T) {
+	type IdentityModel struct {
+		ID   int    `db:"id,pk,identity"`
+		Name string `db:"name"`
+	}
+
+	s, err := schema.Parse(IdentityModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	f := s.ByColumn["id"]
+	if f == nil {
+		t.Fatalf("missing column 'id'")
+	}
+	if !f.Auto {
+		t.Errorf("expected Auto to be true for identity tag")
+	}
+}
+
+func TestParseSchemaWithAutoincrTag(t *testing.T) {
+	type AutoincrModel struct {
+		ID   int    `db:"id,pk,autoincr"`
+		Name string `db:"name"`
+	}
+
+	s, err := schema.Parse(AutoincrModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	f := s.ByColumn["id"]
+	if f == nil {
+		t.Fatalf("missing column 'id'")
+	}
+	if !f.Auto {
+		t.Errorf("expected Auto to be true for autoincr tag")
+	}
+}
+
+func TestParseSchemaWithPkTag(t *testing.T) {
+	type PkTagModel struct {
+		ID   int    `db:"id,pk"`
+		Code string `db:"code" pk:"true"`
+	}
+
+	s, err := schema.Parse(PkTagModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	f := s.ByColumn["code"]
+	if f == nil {
+		t.Fatalf("missing column 'code'")
+	}
+	if !f.PrimaryKey {
+		t.Errorf("expected PrimaryKey to be true for pk tag")
+	}
+}
+
+func TestParseSchemaWithDBTagDash(t *testing.T) {
+	type SkipModel struct {
+		ID      int    `db:"id,pk"`
+		Skipped string `db:"-"`
+		Name    string `db:"name"`
+	}
+
+	s, err := schema.Parse(SkipModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if s.ByColumn["skipped"] != nil {
+		t.Errorf("expected 'skipped' column to be ignored")
+	}
+	if s.ByColumn["name"] == nil {
+		t.Errorf("expected 'name' column to be present")
+	}
+}
+
+func TestParseSchemaDefaultPK(t *testing.T) {
+	type DefaultPKModel struct {
+		ID   int    `db:"id"`
+		Name string `db:"name"`
+	}
+
+	s, err := schema.Parse(DefaultPKModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(s.PrimaryKeys) != 1 {
+		t.Errorf("expected 1 primary key (auto-detected 'id'), got %d", len(s.PrimaryKeys))
+	}
+	if s.PrimaryKeys[0].Column != "id" {
+		t.Errorf("expected primary key column 'id', got '%s'", s.PrimaryKeys[0].Column)
+	}
+}
+
+func TestColumnsAndValuesNilPointer(t *testing.T) {
+	type TestModel struct {
+		ID   int    `db:"id,pk"`
+		Name string `db:"name"`
+	}
+
+	s, err := schema.Parse(TestModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	var nilModel *TestModel
+	_, _, err = s.ColumnsAndValues(nilModel, schema.ExtractOptions{})
+	if err == nil {
+		t.Fatalf("expected error for nil pointer model")
+	}
+}
+
+func TestColumnsAndValuesNonStruct(t *testing.T) {
+	type TestModel struct {
+		ID int `db:"id,pk"`
+	}
+
+	s, err := schema.Parse(TestModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	_, _, err = s.ColumnsAndValues(42, schema.ExtractOptions{})
+	if err == nil {
+		t.Fatalf("expected error for non-struct model")
+	}
+}
+
+func TestToSnakeVariousCases(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", ""},
+		{"a", "a"},
+		{"A", "a"},
+		{"AB", "ab"},
+		{"ABC", "abc"},
+		{"AaBb", "aa_bb"},
+		{"HTTPRequest", "http_request"},
+		{"getHTTPResponse", "get_http_response"},
+		{"already_snake", "already_snake"},
+		{"ID", "id"},
+		{"UserID", "user_id"},
+		{"_test", "_test"},
+		{"test_", "test_"},
+	}
+
+	for _, tt := range tests {
+		result := schema.ToSnake(tt.input)
+		if result != tt.expected {
+			t.Errorf("ToSnake(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestToSnakeUnicodePath(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"ÄÖÜ", "äöü"},
+		{"Äbc", "äbc"},
+		{"äBc", "ä_bc"},
+		{"ÄbcÄ", "äbc_ä"},
+		{"HelloWörld", "hello_wörld"},
+		{"ÜserNäme", "üser_näme"},
+		{"KäseBrot", "käse_brot"},
+		{"Größe", "größe"},
+		{"Öffentlich", "öffentlich"},
+		{"ÄÖÜTest", "äöü_test"},
+		{"TestÄÖÜ", "test_äöü"},
+		{"ÄBC", "äbc"},
+		{"ÄbcDef", "äbc_def"},
+		{"Müller", "müller"},
+		{"GroßHandel", "groß_handel"},
+		{"ÜBER", "über"},
+		{"überSchrift", "über_schrift"},
+	}
+
+	for _, tt := range tests {
+		result := schema.ToSnake(tt.input)
+		if result != tt.expected {
+			t.Errorf("ToSnake(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestToSnakeUnicodeWithDigits(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Ä1b2", "ä1b2"},
+		{"TestÄ1", "test_ä1"},
+		{"Ä2B3c", "ä2b3c"},
+	}
+
+	for _, tt := range tests {
+		result := schema.ToSnake(tt.input)
+		if result != tt.expected {
+			t.Errorf("ToSnake(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestToSnakeUnicodeWithUnderscore(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Ä_bc", "ä_bc"},
+		{"Ä_bc_Ü", "ä_bc_ü"},
+		{"_Äbc", "__äbc"},
+		{"Äbc_Üef", "äbc__üef"},
+	}
+
+	for _, tt := range tests {
+		result := schema.ToSnake(tt.input)
+		if result != tt.expected {
+			t.Errorf("ToSnake(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestToSnakeUnicodeSpecialChars(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Äbc Def", "äbc_def"},
+		{"Äbc!Def", "äbc_def"},
+		{"Äbc@Def", "äbc_def"},
+		{"Äbc-Def", "äbc_def"},
+		{"Äbc.Def", "äbc_def"},
+	}
+
+	for _, tt := range tests {
+		result := schema.ToSnake(tt.input)
+		if result != tt.expected {
+			t.Errorf("ToSnake(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestToSnakeASCIISpecialChars(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Hello World", "hello_world"},
+		{"Hello-World", "hello_world"},
+		{"Hello.World", "hello_world"},
+		{"Hello!World", "hello_world"},
+		{"Hello@World", "hello_world"},
+		{"A B", "ab"},
+		{"A-B", "ab"},
+		{"Test123", "test123"},
+		{"Test123Abc", "test123_abc"},
+		{"A1B2C3", "a1b2c3"},
+		{"v2API", "v2api"},
+		{"HTML5Parser", "html5_parser"},
+	}
+
+	for _, tt := range tests {
+		result := schema.ToSnake(tt.input)
+		if result != tt.expected {
+			t.Errorf("ToSnake(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestToSnakeCyrillic(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"ПриветМир", "привет_мир"},
+		{"Москва", "москва"},
+		{"БольШой", "боль_шой"},
+	}
+
+	for _, tt := range tests {
+		result := schema.ToSnake(tt.input)
+		if result != tt.expected {
+			t.Errorf("ToSnake(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestToSnakeGreek(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"ΑλφαΒητα", "αλφα_βητα"},
+		{"ΓammaDelta", "γamma_delta"},
+	}
+
+	for _, tt := range tests {
+		result := schema.ToSnake(tt.input)
+		if result != tt.expected {
+			t.Errorf("ToSnake(%q) = %q, want %q", tt.input, result, tt.expected)
 		}
 	}
 }

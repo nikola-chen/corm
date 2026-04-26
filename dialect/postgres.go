@@ -3,7 +3,6 @@ package dialect
 import (
 	"strconv"
 	"strings"
-	"sync"
 )
 
 var postgresPlaceholders = [...]string{
@@ -11,12 +10,8 @@ var postgresPlaceholders = [...]string{
 	"$11", "$12", "$13", "$14", "$15", "$16", "$17", "$18", "$19", "$20",
 }
 
-const maxPgQuoteCacheSize = 2048
-
 type postgresDialect struct {
-	mu       sync.RWMutex
-	cache    map[string]string
-	cacheLen int
+	cache quoteCache
 }
 
 func (d *postgresDialect) Name() string { return "postgres" }
@@ -33,33 +28,17 @@ func (d *postgresDialect) QuoteIdent(ident string) string {
 		return `""`
 	}
 
-	// Fast path: no double quotes in ident
 	if strings.IndexByte(ident, '"') == -1 {
 		result := `"` + ident + `"`
 		if len(ident) <= 64 {
-			d.mu.RLock()
-			if v, ok := d.cache[ident]; ok {
-				d.mu.RUnlock()
+			if v, ok := d.cache.Get(ident); ok {
 				return v
 			}
-			d.mu.RUnlock()
-
-			d.mu.Lock()
-			if d.cache == nil {
-				d.cache = make(map[string]string, 256)
-			}
-			if d.cacheLen < maxPgQuoteCacheSize {
-				if _, ok := d.cache[ident]; !ok {
-					d.cache[ident] = result
-					d.cacheLen++
-				}
-			}
-			d.mu.Unlock()
+			d.cache.Set(ident, result)
 		}
 		return result
 	}
 
-	// Escape double quotes - inline replacement to avoid strings.ReplaceAll allocation
 	var result strings.Builder
 	result.Grow(len(ident) + 2)
 	result.WriteByte('"')

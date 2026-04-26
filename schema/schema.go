@@ -9,8 +9,6 @@ import (
 	"unicode"
 )
 
-
-
 // TableNamer is an interface for structs to customize their table name.
 type TableNamer interface {
 	TableName() string
@@ -265,8 +263,6 @@ func parseStructFields(s *Schema, t reflect.Type, parentIndex []int) {
 		s.ByColumn[strings.ToLower(col)] = f
 	}
 }
-
-
 
 func appendIndex(parent []int, i int) []int {
 	idx := make([]int, len(parent)+1)

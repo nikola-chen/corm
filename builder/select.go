@@ -659,7 +659,6 @@ func (b *SelectBuilder) SQL() (string, []any, error) {
 	buf := getBuffer()
 	defer putBuffer(buf)
 	ab := newArgBuilder(b.d, buf)
-	defer putArgBuilder(ab)
 
 	if err := b.appendSQL(buf, ab); err != nil {
 		return "", nil, err

@@ -31,6 +31,191 @@ func BenchmarkSchemaParse(b *testing.B) {
 	}
 }
 
+func BenchmarkToSnakeASCII(b *testing.B) {
+	b.Run("CamelCase", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = schema.ToSnake("HTTPResponseCode")
+		}
+	})
+	b.Run("AlreadySnake", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = schema.ToSnake("already_snake_case")
+		}
+	})
+	b.Run("SingleWord", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = schema.ToSnake("simple")
+		}
+	})
+	b.Run("Empty", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = schema.ToSnake("")
+		}
+	})
+}
+
+func BenchmarkToSnakeUnicode(b *testing.B) {
+	b.Run("GermanUmlaut", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = schema.ToSnake("GrößeHandel")
+		}
+	})
+	b.Run("Cyrillic", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = schema.ToSnake("ПриветМир")
+		}
+	})
+	b.Run("MixedASCIIUnicode", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = schema.ToSnake("HelloWörld")
+		}
+	})
+}
+
+func BenchmarkToSnakeCacheHit(b *testing.B) {
+	schema.ToSnake("CachedColumnName")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = schema.ToSnake("CachedColumnName")
+	}
+}
+
+func BenchmarkSchemaParseCacheHit(b *testing.B) {
+	schema.Parse(BenchUser{})
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := schema.Parse(BenchUser{})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkSchemaColumnsAndValues(b *testing.B) {
+	user := BenchUser{ID: 1, Name: "Alice", Email: "alice@test.com", Age: 25, Status: 1, CreatedAt: "2024-01-01"}
+	s, err := schema.Parse(&user)
+	if err != nil {
+		b.Fatal(err)
+	}
+	opts := schema.ExtractOptions{IncludePrimaryKey: true}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, err := s.ColumnsAndValues(user, opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkSchemaColumnsAndValuesOmitEmpty(b *testing.B) {
+	type OmitModel struct {
+		ID   int    `db:"id,pk"`
+		Name string `db:"name,omitempty"`
+		Age  int    `db:"age,omitempty"`
+	}
+	model := OmitModel{ID: 1, Name: "Alice", Age: 0}
+	s, err := schema.Parse(&model)
+	if err != nil {
+		b.Fatal(err)
+	}
+	opts := schema.ExtractOptions{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, err := s.ColumnsAndValues(model, opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkSelectBuildParallel(b *testing.B) {
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			qb := builder.MySQL()
+			_, _, err := qb.Select("id", "name").
+				From("users").
+				Where("age > ?", 18).
+				Limit(10).
+				SQL()
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkInsertBuildParallel(b *testing.B) {
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			qb := builder.MySQL()
+			_, _, err := qb.Insert("users").
+				Columns("name", "age").
+				Values("Alice", 25).
+				SQL()
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkSchemaParseParallel(b *testing.B) {
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, err := schema.Parse(BenchUser{})
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkToSnakeParallel(b *testing.B) {
+	inputs := []string{"UserID", "CreatedAt", "HTTPResponseCode", "already_snake"}
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			_ = schema.ToSnake(inputs[i%len(inputs)])
+			i++
+		}
+	})
+}
+
+func BenchmarkLargeWhereInBuild(b *testing.B) {
+	qb := builder.MySQL()
+	ids := make([]int, 100)
+	for i := range ids {
+		ids[i] = i + 1
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, err := qb.Select("*").
+			From("users").
+			WhereIn("id", ids).
+			SQL()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkInsertBatchLargeBuild(b *testing.B) {
+	qb := builder.MySQL()
+	users := make([]BenchUser, 50)
+	for i := range users {
+		users[i] = BenchUser{Name: "User" + string(rune('A'+i%26)), Age: 20 + i%30}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, err := qb.Insert("users").
+			Models(users).
+			SQL()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkSelectBuild
 func BenchmarkSelectBuild(b *testing.B) {
 	qb := builder.MySQL()

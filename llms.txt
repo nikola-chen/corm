@@ -13,16 +13,20 @@ This repository provides a lightweight ORM/query-builder for Go with MySQL and P
 - Never concatenate untrusted input into SQL strings (Where/Join/Having/OrderBy).
 - Always use placeholder args: `Where("id = ?", id)`.
 - Never treat user input as identifiers (table/column names). Use constants or `TableName()`/`db` tags.
+- Engine methods (Close/Stats/Ping/DB/Dialect) have nil protection but always check errors.
 
 ## Primary entrypoints
 
 - Engine: `engine.Open`, `engine.WithDB`, `(*Engine).Transaction`
 - Builders:
   - SELECT: `e.Select(...).From(...).Where(...).Limit(...).Offset(...).All/One`
-  - INSERT: `e.Insert(\"...\").Model(&obj)` or `Columns(...).Values(...)`
-  - UPDATE: `e.Update(\"...\").Model(&obj)` or `Set(...).Where(...)`
-  - DELETE: `e.Delete(\"...\").Where(...)` (default requires WHERE; use `AllowEmptyWhere()` to override)
+  - INSERT: `e.Insert("...").Model(&obj)` or `Columns(...).Values(...)`
+  - UPDATE: `e.Update("...").Model(&obj)` or `Set(...).Where(...)`
+  - DELETE: `e.Delete("...").Where(...)` (default requires WHERE; use `AllowEmptyWhere()` to override)
 - SQL-only builder helper (no execution): `qb := builder.MySQL()` / `builder.Postgres()` then `qb.Select/Insert/Update/Delete(...).SQL()`
+- Builder with executor + dialect: `qb := builder.For(dialect.MustGet(driverName), exec)` or `builder.MustFor(dialect.MustGet(driverName), exec)`
+- API accessors: `qb.Dialect()` returns bound dialect, `qb.Err()` returns stored error
+- Engine accessors: `e.Dialect()` returns engine dialect, `e.DB()` returns underlying `*sql.DB`
 - Expressions: `clause.In`, `clause.And`, `clause.Or`, `clause.Raw`
 
 ## Scanning targets
@@ -33,5 +37,5 @@ This repository provides a lightweight ORM/query-builder for Go with MySQL and P
 
 ## Dialects
 
-- MySQL: `?` placeholders
-- Postgres: `$1,$2,...` placeholders
+- MySQL: `?` placeholders, no RETURNING support
+- Postgres: `$1,$2,...` placeholders, supports RETURNING

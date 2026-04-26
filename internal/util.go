@@ -57,8 +57,7 @@ func NormalizeColumn(c string) string {
 		return toLowerASCII(c)
 	}
 
-	var b strings.Builder
-	b.Grow(len(c))
+	buf := make([]byte, 0, len(c))
 	for i := 0; i < len(c); i++ {
 		ch := c[i]
 		if ch == '`' || ch == '"' {
@@ -67,35 +66,33 @@ func NormalizeColumn(c string) string {
 		if ch >= 'A' && ch <= 'Z' {
 			ch += 'a' - 'A'
 		}
-		b.WriteByte(ch)
+		buf = append(buf, ch)
 	}
-	return b.String()
+	return string(buf)
 }
 
 func normalizeColumnUnicode(c string, needsStrip bool) string {
 	if needsStrip {
-		var b strings.Builder
-		b.Grow(len(c))
+		buf := make([]rune, 0, len(c))
 		for _, r := range c {
 			if r == '`' || r == '"' {
 				continue
 			}
-			b.WriteRune(r)
+			buf = append(buf, r)
 		}
-		c = b.String()
+		c = string(buf)
 	}
 	return strings.ToLower(c)
 }
 
 func toLowerASCII(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
+	buf := make([]byte, len(s))
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
 		if ch >= 'A' && ch <= 'Z' {
 			ch += 'a' - 'A'
 		}
-		b.WriteByte(ch)
+		buf[i] = ch
 	}
-	return b.String()
+	return string(buf)
 }

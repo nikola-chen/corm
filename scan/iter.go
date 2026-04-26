@@ -61,14 +61,14 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 					yield(zeroT, err)
 					return
 				}
-				
+
 				var out T
 				if isPtr {
 					out = elem.Addr().Interface().(T)
 				} else {
 					out = elem.Interface().(T)
 				}
-				
+
 				if !yield(out, nil) {
 					return
 				}
@@ -76,7 +76,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 			if err := rows.Err(); err != nil {
 				yield(zeroT, err)
 			}
-		
+
 		case reflect.Map:
 			if targetT.Kind() != reflect.Map || targetT.Key().Kind() != reflect.String {
 				yield(zeroT, errors.New("corm: map element must have string keys"))
@@ -88,7 +88,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 			for i := range holders {
 				holders[i] = new(any)
 			}
-			
+
 			keys := make([]reflect.Value, n)
 			for i, c := range cols {
 				keys[i] = reflect.ValueOf(c)
@@ -109,12 +109,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 						continue
 					}
 
-					switch b := raw.(type) {
-					case []byte:
-						c := make([]byte, len(b))
-						copy(c, b)
-						raw = c
-					case sql.RawBytes:
+					if b, ok := raw.([]byte); ok {
 						c := make([]byte, len(b))
 						copy(c, b)
 						raw = c
@@ -136,7 +131,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 					m.SetMapIndex(keys[i], v)
 					*(holders[i].(*any)) = nil
 				}
-				
+
 				out := m.Interface().(T)
 				if !yield(out, nil) {
 					return
@@ -145,7 +140,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 			if err := rows.Err(); err != nil {
 				yield(zeroT, err)
 			}
-		
+
 		default:
 			yield(zeroT, errors.New("corm: dest must be struct, *struct, or map"))
 		}

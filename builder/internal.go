@@ -3,20 +3,29 @@ package builder
 import (
 	"errors"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/nikola-chen/corm/dialect"
 )
 
+var bufPool = sync.Pool{
+	New: func() any {
+		b := new(strings.Builder)
+		b.Grow(512)
+		return b
+	},
+}
+
 func getBuffer() *strings.Builder {
-	buf := new(strings.Builder)
-	buf.Grow(512)
+	buf := bufPool.Get().(*strings.Builder)
 	return buf
 }
 
 func putBuffer(buf *strings.Builder) {
-	// No-op without pool
+	buf.Reset()
+	bufPool.Put(buf)
 }
 
 // trimSpaceASCII trims ASCII whitespace from both ends of s.

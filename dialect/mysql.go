@@ -1,16 +1,9 @@
 package dialect
 
-import (
-	"strings"
-	"sync"
-)
-
-const maxQuoteCacheSize = 2048
+import "strings"
 
 type mysqlDialect struct {
-	mu       sync.RWMutex
-	cache    map[string]string
-	cacheLen int
+	cache quoteCache
 }
 
 func (d *mysqlDialect) Name() string { return "mysql" }
@@ -22,33 +15,17 @@ func (d *mysqlDialect) QuoteIdent(ident string) string {
 		return "``"
 	}
 
-	// Fast path: no backticks in ident
 	if strings.IndexByte(ident, '`') == -1 {
 		result := "`" + ident + "`"
 		if len(ident) <= 64 {
-			d.mu.RLock()
-			if v, ok := d.cache[ident]; ok {
-				d.mu.RUnlock()
+			if v, ok := d.cache.Get(ident); ok {
 				return v
 			}
-			d.mu.RUnlock()
-
-			d.mu.Lock()
-			if d.cache == nil {
-				d.cache = make(map[string]string, 256)
-			}
-			if d.cacheLen < maxQuoteCacheSize {
-				if _, ok := d.cache[ident]; !ok {
-					d.cache[ident] = result
-					d.cacheLen++
-				}
-			}
-			d.mu.Unlock()
+			d.cache.Set(ident, result)
 		}
 		return result
 	}
 
-	// Escape backticks - inline replacement to avoid strings.ReplaceAll allocation
 	var result strings.Builder
 	result.Grow(len(ident) + 2)
 	result.WriteByte('`')

@@ -28,7 +28,6 @@ type whereBuilder struct {
 	err   error
 }
 
-
 func (wb *whereBuilder) Where(sql string, args ...any) {
 	if wb.err != nil {
 		return
@@ -244,7 +243,7 @@ func (wb *whereBuilder) appendWhere(buf *strings.Builder, ab *argBuilder) error 
 				buf.WriteString(" AND ")
 			}
 			buf.WriteByte('(')
-			
+
 			if w.op == "EXISTS" || w.op == "NOT EXISTS" {
 				buf.WriteString(w.op)
 				buf.WriteString(" (")

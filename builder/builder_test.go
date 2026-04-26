@@ -241,14 +241,9 @@ func TestInsertReturningMySQLIgnored(t *testing.T) {
 		Values("alice").
 		Returning("id")
 
-	sqlStr, _, err := q.SQL()
-	if err != nil {
-		t.Fatalf("SQL() error: %v", err)
-	}
-
-	wantSQL := "INSERT INTO `users` (`name`) VALUES (?)"
-	if sqlStr != wantSQL {
-		t.Fatalf("sql mismatch:\nwant: %s\ngot : %s", wantSQL, sqlStr)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Fatalf("expected error for RETURNING on MySQL")
 	}
 }
 

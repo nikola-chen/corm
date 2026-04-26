@@ -121,26 +121,41 @@ func WithDB(db *sql.DB, driverName string, opts ...Option) (*Engine, error) {
 
 // DB returns the underlying sql.DB.
 func (e *Engine) DB() *sql.DB {
+	if e == nil {
+		return nil
+	}
 	return e.db
 }
 
 // Dialect returns the database dialect.
 func (e *Engine) Dialect() dialect.Dialect {
+	if e == nil {
+		return nil
+	}
 	return e.dialect
 }
 
 // Close closes the database connection.
 func (e *Engine) Close() error {
+	if e == nil || e.db == nil {
+		return errors.New("corm: engine is not initialized")
+	}
 	return e.db.Close()
 }
 
 // Stats returns database statistics.
 func (e *Engine) Stats() sql.DBStats {
+	if e == nil || e.db == nil {
+		return sql.DBStats{}
+	}
 	return e.db.Stats()
 }
 
 // Ping verifies a connection to the database is still alive.
 func (e *Engine) Ping(ctx context.Context) error {
+	if e == nil || e.db == nil {
+		return errors.New("corm: engine is not initialized")
+	}
 	return e.db.PingContext(ctx)
 }
 

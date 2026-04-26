@@ -17,19 +17,17 @@ type setItem struct {
 	value  any
 }
 
-
-
 // UpdateBuilder builds UPDATE statements.
 type UpdateBuilder struct {
-	exec  Executor
-	d     dialect.Dialect
-	table string
-	joins []selectJoinItem
+	exec      Executor
+	d         dialect.Dialect
+	table     string
+	joins     []selectJoinItem
 	fromAlias string
-	sets  []setItem
-	where whereBuilder
+	sets      []setItem
+	where     whereBuilder
 	returning []string
-	err   error
+	err       error
 
 	includePrimaryKey bool
 	includeAuto       bool
@@ -271,8 +269,8 @@ func (b *UpdateBuilder) Returning(columns ...string) *UpdateBuilder {
 		return b
 	}
 	for _, c := range columns {
-		if _, ok := quoteSelectColumnStrict(b.d, c); !ok {
-			b.err = errors.New("corm: invalid column identifier in returning")
+		if _, ok := quoteColumnStrict(b.d, c); !ok {
+			b.err = errors.New("corm: invalid column identifier")
 			return b
 		}
 	}
@@ -609,7 +607,6 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 	buf := getBuffer()
 	defer putBuffer(buf)
 	ab := newArgBuilder(b.d, buf)
-	defer putArgBuilder(ab)
 
 	buf.WriteString("UPDATE ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)
@@ -674,13 +671,19 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 	}
 
 	if len(b.returning) > 0 {
+		if !b.d.SupportsReturning() {
+			return "", nil, errors.New("corm: RETURNING is not supported by " + b.d.Name() + " dialect")
+		}
 		buf.WriteString(" RETURNING ")
 		for i, c := range b.returning {
 			if i > 0 {
 				buf.WriteString(", ")
 			}
-			q, _ := quoteSelectColumnStrict(b.d, c)
-			buf.WriteString(q)
+			qCol, ok := quoteColumnStrict(b.d, c)
+			if !ok {
+				return "", nil, errors.New("corm: invalid column identifier")
+			}
+			buf.WriteString(qCol)
 		}
 	}
 

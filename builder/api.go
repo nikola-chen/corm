@@ -57,6 +57,47 @@ func Postgres() *API {
 	return Dialect("postgres")
 }
 
+// For creates an API bound to the given dialect and Executor.
+// This is a convenience wrapper around NewAPI for the common case
+// of binding both a dialect and an executor.
+func For(d dialect.Dialect, exec Executor) *API {
+	return NewAPI(d, exec)
+}
+
+// MustFor is like For but panics if the dialect is nil.
+func MustFor(d dialect.Dialect, exec Executor) *API {
+	if d == nil {
+		panic("corm: nil dialect")
+	}
+	return NewAPI(d, exec)
+}
+
+// MustDialect is like Dialect but panics if the dialect is not registered.
+func MustDialect(driver string) *API {
+	driver = strings.TrimSpace(driver)
+	if driver == "" {
+		panic("corm: empty dialect")
+	}
+	d := dialect.MustGet(driver)
+	return &API{d: d}
+}
+
+// Dialect returns the dialect bound to this API, or nil if none.
+func (a *API) Dialect() dialect.Dialect {
+	if a == nil {
+		return nil
+	}
+	return a.d
+}
+
+// Err returns any error stored in the API, or nil.
+func (a *API) Err() error {
+	if a == nil {
+		return errors.New("corm: nil api")
+	}
+	return a.err
+}
+
 // Select creates a SelectBuilder using the API's dialect and Executor.
 func (a *API) Select(columns ...string) *SelectBuilder {
 	if a == nil {

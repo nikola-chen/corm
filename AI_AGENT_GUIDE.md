@@ -32,7 +32,8 @@
 - Raw Exec：`e.RawExec(ctx, "UPDATE users SET age = ?", 18)`
 - 业务侧统一封装（推荐）：`qb := e.Builder()` 或 `qb := tx.Builder()`（预绑定 dialect + executor，便于在你的 DAO/Repository 层复用）
 - 仅构建 SQL（driver 运行时确定）：`qb := builder.Dialect(driverName)` 或 `qb := builder.MustDialect(driverName)`
-- 绑定 executor + dialect（driver 运行时确定）：`qb := builder.For(driverName, exec)` 或 `qb := builder.MustFor(driverName, exec)`
+- 绑定 executor + dialect：`qb := builder.For(dialect.MustGet(driverName), exec)` 或 `qb := builder.MustFor(dialect.MustGet(driverName), exec)`
+- 查询 API 状态：`qb.Dialect()` 获取绑定的方言，`qb.Err()` 获取存储的错误
 - 事务：`e.Transaction(ctx, func(tx *engine.Tx) error { ... })`
 - 嵌套事务（Savepoint）：`tx.Transaction(ctx, func(subTx *engine.Tx) error { ... })`
 
@@ -213,12 +214,16 @@ e.Select("u.name").
 - **Batch Update + Where**: `Key("id").Maps(slice).Where("status = ?", 1)`.
 - **Note**: Batch Update (using `Key`) is mutually exclusive with `Set/Map/Model` (single update). Do not mix them.
 - `Limit(int)`: Adds a LIMIT clause. **Warning**: Only supported by MySQL dialect. Postgres does not support LIMIT on UPDATE/DELETE; using it will return an error.
+- `Returning(cols...)`: Adds a RETURNING clause. **Warning**: Only supported by PostgreSQL dialect. MySQL does not support RETURNING; using it will return an error.
+- `Increment(column, amount)`: Increments a numeric column by the given amount (e.g. `Increment("views", 1)`).
+- `Decrement(column, amount)`: Decrements a numeric column by the given amount (e.g. `Decrement("stock", 1)`).
 - Default requires WHERE; use `AllowEmptyWhere()` only when you really want to update all rows.
 
 ### 4.4 DELETE
 
 - Use `Delete(table)`.
 - `Limit(int)`: Adds a LIMIT clause. **Warning**: Only supported by MySQL dialect. Postgres does not support LIMIT on DELETE.
+- `Returning(cols...)`: Adds a RETURNING clause. **Warning**: Only supported by PostgreSQL dialect. MySQL does not support RETURNING; using it will return an error.
 - Default requires WHERE; use `AllowEmptyWhere()` only when you really want to delete all rows.
 
 ---
@@ -545,7 +550,63 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.1` (Ready for Go 1.26.2)
+- 当前版本：`v2.1.4` (Ready for Go 1.26.2)
+
+### v2.1.4 变更摘要（第三轮深度审计）
+
+**代码健壮性增强：**
+- `Engine` 方法（`Close/Stats/Ping/DB/Dialect`）增加 nil 保护，防止空指针解引用。
+- 统一 `Returning()` 验证逻辑：Insert/Update/Delete Builder 均使用 `quoteColumnStrict` 进行列标识符校验，错误信息统一为 `"corm: invalid column identifier"`。
+- `Returning` 子句 SQL 生成时增加校验，无效列标识符会返回错误而非静默输出空字符串。
+
+**代码风格统一与重构：**
+- 提取 `dialect.quoteCache` 共享结构体，消除 MySQL/PostgreSQL 方言中重复的缓存逻辑（`map[string]string` + `sync.RWMutex` + 计数器）。
+- `quoteCache.Get/Set` 封装读写锁操作，减少代码重复约 40 行。
+- 移除 `mysqlDialect`/`postgresDialect` 中的 `mu/cache/cacheLen` 字段和 `maxQuoteCacheSize`/`maxPgQuoteCacheSize` 常量，统一使用 `dialect.quoteCache`。
+
+**性能基准测试：**
+- 新增 `BenchmarkSelectBuild`、`BenchmarkInsertBuild`、`BenchmarkUpdateBuild`、`BenchmarkDeleteBuild` 覆盖核心 SQL 构建路径。
+- 新增 `BenchmarkScanAllStruct`、`BenchmarkScanAllMap`、`BenchmarkIterStruct`、`BenchmarkIterMap` 覆盖扫描与迭代路径。
+- dialect 包测试覆盖率提升至 97.2%。
+
+**代码清理：**
+- 修复 `scan.go`/`iter.go` 中多余的 `sql.RawBytes` type switch case。`sql.RawBytes` 是 `[]byte` 的类型别名，在 type switch 中 `case []byte:` 已覆盖所有情况，`case sql.RawBytes:` 为死代码，已移除。
+- scan 包测试覆盖率提升至 75.1%。
+
+### v2.1.3 变更摘要（第二轮深度审计）
+
+**测试覆盖增强：**
+- engine 包测试覆盖率从 31.1% 大幅提升，新增全面的单元测试覆盖所有核心方法。
+- scan 包新增 `ScanOneStrict`、指针切片分配、map 键类型验证等测试（覆盖率 69.3% → 77.5%）。
+- schema 包新增错误处理、标签解析（auto/identity/autoincr/pk/readonly/omitEmpty）、默认主键检测、ColumnsAndValues 边界情况等测试（覆盖率 73.2% → 89.5%）。
+- 创建独立的内存测试驱动，消除外部数据库依赖，提升测试可靠性。
+
+**安全修复：**
+- 修复 `Tx.Transaction` 中 SAVEPOINT 名称未经验证直接拼接的潜在 SQL 注入风险（虽然名称由内部序列生成，但增加防御性验证）。
+
+**代码健壮性：**
+- 所有包通过 `go vet` 静态检查无警告。
+- 所有包通过 `go test -race` 竞态检测无数据竞争。
+- 统一错误处理模式，生产代码无未处理错误。
+
+### v2.1.2 变更摘要
+
+**Bug 修复：**
+- 修复 `scan.appendLowerASCII`/`writeLowerASCII` 在遇到非 ASCII 字符时未正确处理剩余子串的 bug。
+- 修复 `Update`/`Delete` Builder 在 MySQL 方言下使用 `Returning()` 未返回错误的问题（MySQL 不支持 RETURNING）。
+- 实现 `builder.For`/`MustFor`/`MustDialect` 函数（此前文档引用但代码缺失）。
+
+**性能优化：**
+- `NormalizeColumn` 使用 `[]byte` 替代 `strings.Builder`，减少内存分配。
+- `builder/internal.go` 添加 `sync.Pool` 复用 `strings.Builder`，减少链式构建时的堆分配。
+- 合并 `arg_builder.go` 中重复的 placeholder 重写逻辑为统一的 `rewritePlaceholders` 函数。
+
+**API 增强：**
+- 新增 `API.Dialect()` 访问器，返回绑定的方言。
+- 新增 `API.Err()` 访问器，返回存储的错误。
+- 新增 `UpdateBuilder.Returning()` 方言兼容检查（MySQL 下返回错误）。
+- 新增 `DeleteBuilder.Returning()` 方言兼容检查（MySQL 下返回错误）。
+- 新增 `UpdateBuilder.Increment()`/`Decrement()` 文档。
 
 ### v2.1.1 变更摘要
 

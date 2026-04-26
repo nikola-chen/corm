@@ -59,8 +59,7 @@ func appendLowerASCII(buf []byte, s string) []byte {
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
 		if ch >= 0x80 {
-			// Non-ASCII: use strings.ToLower
-			return append(buf, strings.ToLower(s)...)
+			return append(buf, strings.ToLower(s[i:])...)
 		}
 		if ch >= 'A' && ch <= 'Z' {
 			ch += 'a' - 'A'
@@ -68,22 +67,6 @@ func appendLowerASCII(buf []byte, s string) []byte {
 		buf = append(buf, ch)
 	}
 	return buf
-}
-
-// writeLowerASCII writes the lowercase version of s to b.
-// It handles ASCII characters directly and falls back to strings.ToLower for non-ASCII.
-func writeLowerASCII(b *strings.Builder, s string) {
-	for i := 0; i < len(s); i++ {
-		ch := s[i]
-		if ch >= 0x80 {
-			b.WriteString(strings.ToLower(s))
-			return
-		}
-		if ch >= 'A' && ch <= 'Z' {
-			ch += 'a' - 'A'
-		}
-		b.WriteByte(ch)
-	}
 }
 
 func structPlan(s *schema.Schema, cols []string) [][]int {
@@ -199,12 +182,7 @@ func scanAll(rows *sql.Rows, dest any, strictStructColumns bool, capHint int) er
 				}
 
 				// Safe copy for byte slices (sql.RawBytes is volatile)
-				switch b := raw.(type) {
-				case []byte:
-					c := make([]byte, len(b))
-					copy(c, b)
-					raw = c
-				case sql.RawBytes:
+				if b, ok := raw.([]byte); ok {
 					c := make([]byte, len(b))
 					copy(c, b)
 					raw = c
@@ -345,7 +323,6 @@ func scanOne(rows *sql.Rows, dest any, strictStructColumns bool) error {
 				continue
 			}
 
-			// Safe copy for []byte (sql.RawBytes is volatile)
 			if b, ok := raw.([]byte); ok {
 				c := make([]byte, len(b))
 				copy(c, b)

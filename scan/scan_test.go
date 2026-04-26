@@ -279,7 +279,6 @@ func TestScanAllStructCache(t *testing.T) {
 		t.Fatalf("ScanAll: %v", err)
 	}
 
-	// Second scan with same struct type should use cached plan
 	rows2, err := db.QueryContext(context.Background(), "struct_two_rows")
 	if err != nil {
 		t.Fatalf("QueryContext: %v", err)
@@ -332,7 +331,6 @@ func TestScanAllMapNilSlice(t *testing.T) {
 
 func TestScanAllStructWithUnmappedColumns(t *testing.T) {
 	db := openTestDB(t)
-	// Query returns columns not in struct
 	rows, err := db.QueryContext(context.Background(), "struct_two_rows")
 	if err != nil {
 		t.Fatalf("QueryContext: %v", err)
@@ -415,5 +413,65 @@ func TestScanOneWrongType(t *testing.T) {
 	var out string
 	if err := scan.ScanOne(rows, &out); err == nil {
 		t.Fatalf("expected error for wrong type")
+	}
+}
+
+func TestScanOneStrict(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var u User
+	if err := scan.ScanOneStrict(rows, &u); err != nil {
+		t.Fatalf("ScanOneStrict: %v", err)
+	}
+	if u.ID != 7 || u.Name != "neo" {
+		t.Fatalf("u=%+v", u)
+	}
+}
+
+func TestScanOneStrictUnmappedColumn(t *testing.T) {
+	// Strict mode validates that column names are unique after normalization,
+	// not that all columns map to struct fields. Unmapped columns are silently ignored.
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "struct_two_rows")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	type MinimalUser struct {
+		ID int `db:"id"`
+	}
+	var u MinimalUser
+	// Should succeed - strict mode only checks for duplicate columns, not unmapped ones
+	if err := scan.ScanOneStrict(rows, &u); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if u.ID != 1 {
+		t.Fatalf("expected ID=1, got %d", u.ID)
+	}
+}
+
+func TestScanOneStrictDuplicateColumns(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "struct_dup_cols")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out User
+	if err := scan.ScanOneStrict(rows, &out); err == nil {
+		t.Fatalf("expected error for duplicate columns")
+	}
+}
+
+func TestScanOneMapNilKeyType(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.QueryContext(context.Background(), "one_row")
+	if err != nil {
+		t.Fatalf("QueryContext: %v", err)
+	}
+	var out map[int]any
+	if err := scan.ScanOne(rows, &out); err == nil {
+		t.Fatalf("expected error for non-string map key")
 	}
 }
