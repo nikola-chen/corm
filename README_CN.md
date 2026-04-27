@@ -675,6 +675,27 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
+### v2.1.5（Go 1.26 现代语法审计）
+
+**Go 1.26 现代化：**
+- 采用 `new(expr)` 表达式参数语法，替换 `intPtr` 辅助函数和 Limit/Offset Builder 中的 `&variable` 模式。
+- 在 `clause.In()` 中用 `strings.Join` 替代手动 `strings.Builder` 循环生成占位符（Go 1.26 中性能持平）。
+- 全代码库应用现代 `for i := range n` 整数范围语法。
+- 用 `reflect.TypeFor[string]()` 替代 `reflect.TypeOf("")` 获取泛型类型。
+- 采用 `strings.Cut` 进行更简洁的字符串分割。
+- 将 `for i := 0; i < len(x); i++` 循环模式现代化为 `for i := range x`。
+
+**性能优化：**
+- 用 `strings.IndexByte` 替代 `strings.Contains(column, ".")` 进行单字符搜索。
+- 将多个 `strings.Contains` 检查合并为单个 `strings.ContainsAny`。
+- 优化 `TrimSpace/ToUpper` 执行顺序，减少处理字符数。
+- 利用 Go 1.26 默认启用的 Green Tea GC 加速小对象分配。
+
+**代码质量：**
+- 将注释中的 `interface{}` 更新为 `any`。
+- 移除冗余的 `intPtr` 辅助函数。
+- 全部 8 个包通过 `go vet` 和 `go test`。
+
 ### v2.1.4（第三轮深度审计）
 
 **健壮性增强：**

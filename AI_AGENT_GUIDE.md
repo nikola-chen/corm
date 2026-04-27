@@ -550,7 +550,28 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.4` (Ready for Go 1.26.2)
+- 当前版本：`v2.1.5` (Go 1.26.2)
+
+### v2.1.5 变更摘要（Go 1.26 现代语法审计）
+
+**Go 1.26 现代化：**
+- 采用 `new(expr)` 表达式参数语法，替换 `intPtr` 辅助函数和 `&variable` 模式。
+- 用 `strings.Join` 替代手动 `strings.Builder` 循环生成占位符（Go 1.26 中性能持平）。
+- 应用现代 `for i := range n` 整数范围语法。
+- 用 `reflect.TypeFor[string]()` 替代 `reflect.TypeOf("")`。
+- 采用 `strings.Cut` 进行更简洁的字符串分割。
+- 将 `for i := 0; i < len(x); i++` 循环现代化为 `for i := range x`。
+
+**性能优化：**
+- 用 `strings.IndexByte` 替代 `strings.Contains` 进行单字符搜索。
+- 合并多个 `strings.Contains` 为单个 `strings.ContainsAny`。
+- 优化 `TrimSpace/ToUpper` 执行顺序。
+- 利用 Green Tea GC 加速小对象分配。
+
+**代码质量：**
+- 更新 `interface{}` → `any` 注释。
+- 移除冗余 `intPtr` 辅助函数。
+- 全部 8 个包通过 `go vet` 和 `go test`。
 
 ### v2.1.4 变更摘要（第三轮深度审计）
 

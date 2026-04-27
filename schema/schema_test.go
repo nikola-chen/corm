@@ -63,7 +63,7 @@ func TestParseSchemaConcurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		go func(i int) {
 			defer wg.Done()
 			s, err := schema.Parse(ConcurrentUser{})
@@ -231,7 +231,7 @@ func TestParseTypeNil(t *testing.T) {
 }
 
 func TestParseTypeNonStruct(t *testing.T) {
-	_, err := schema.ParseType(reflect.TypeOf(""))
+	_, err := schema.ParseType(reflect.TypeFor[string]())
 	if err == nil {
 		t.Fatalf("expected error for non-struct type")
 	}
@@ -334,7 +334,7 @@ func TestSchemaColumnsAndValuesInvalidModel(t *testing.T) {
 
 func TestSchemaCacheEviction(t *testing.T) {
 	// Create many unique types to trigger cache eviction
-	for i := 0; i < 1100; i++ {
+	for i := range 1100 {
 		// Use reflect to create unique struct types dynamically
 		// This is a simplified test - in reality we'd need many unique types
 		// Just verify the cache doesn't panic with many operations

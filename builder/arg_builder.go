@@ -220,7 +220,7 @@ func rewritePlaceholders(sql string, startIndex int, placeholder func(int) strin
 	}
 
 	isSimple := true
-	for i := 0; i < len(sql); i++ {
+	for i := range sql {
 		c := sql[i]
 		if c == '\'' || c == '"' || c == '-' || c == '/' || c == '$' {
 			isSimple = false
@@ -230,7 +230,7 @@ func rewritePlaceholders(sql string, startIndex int, placeholder func(int) strin
 
 	if isSimple {
 		count := 0
-		for i := 0; i < len(sql); i++ {
+		for i := range sql {
 			if sql[i] == '?' {
 				count++
 			}
@@ -241,7 +241,7 @@ func rewritePlaceholders(sql string, startIndex int, placeholder func(int) strin
 		var out strings.Builder
 		out.Grow(len(sql) + count*4)
 		nextIndex := startIndex
-		for i := 0; i < len(sql); i++ {
+		for i := range sql {
 			if sql[i] == '?' {
 				out.WriteString(placeholder(nextIndex))
 				nextIndex++

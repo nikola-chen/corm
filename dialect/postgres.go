@@ -42,7 +42,7 @@ func (d *postgresDialect) QuoteIdent(ident string) string {
 	var result strings.Builder
 	result.Grow(len(ident) + 2)
 	result.WriteByte('"')
-	for i := 0; i < len(ident); i++ {
+	for i := range ident {
 		c := ident[i]
 		if c == '"' {
 			result.WriteString(`""`)

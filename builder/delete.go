@@ -318,7 +318,7 @@ func (b *DeleteBuilder) Limit(limit int) *DeleteBuilder {
 	if b.err != nil {
 		return b
 	}
-	b.limit = &limit
+	b.limit = new(limit)
 	return b
 }
 

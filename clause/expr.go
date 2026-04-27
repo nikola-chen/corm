@@ -173,7 +173,7 @@ func In(column string, values ...any) Expr {
 				// For now, the reflect path is acceptable for obscure types.
 
 				flattened := make([]any, n)
-				for i := 0; i < n; i++ {
+				for i := range n {
 					flattened[i] = rv.Index(i).Interface()
 				}
 				return buildIn(column, flattened)
@@ -202,7 +202,6 @@ func In(column string, values ...any) Expr {
 
 func buildIn(column string, args []any) Expr {
 	n := len(args)
-	// Fast path for common small sizes
 	switch n {
 	case 1:
 		return Expr{SQL: column + " IN (?)", Args: args}
@@ -216,20 +215,11 @@ func buildIn(column string, args []any) Expr {
 		return Expr{SQL: column + " IN (?, ?, ?, ?, ?)", Args: args}
 	}
 
-	var b strings.Builder
-	// approximate size: column + " IN (" + (3*n) + ")"
-	b.Grow(len(column) + 6 + n*3)
-
-	b.WriteString(column)
-	b.WriteString(" IN (")
-	for i := range args {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteByte('?')
+	placeholders := make([]string, n)
+	for i := range placeholders {
+		placeholders[i] = "?"
 	}
-	b.WriteByte(')')
-	return Expr{SQL: b.String(), Args: args}
+	return Expr{SQL: column + " IN (" + strings.Join(placeholders, ", ") + ")", Args: args}
 }
 
 // Not negates an expression: "NOT (expr)"

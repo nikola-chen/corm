@@ -629,7 +629,7 @@ func (b *SelectBuilder) Limit(limit int) *SelectBuilder {
 	if limit < 0 {
 		limit = 0
 	}
-	b.limit = &limit
+	b.limit = new(limit)
 	return b
 }
 
@@ -643,7 +643,7 @@ func (b *SelectBuilder) Offset(offset int) *SelectBuilder {
 	if offset < 0 {
 		offset = 0
 	}
-	b.offset = &offset
+	b.offset = new(offset)
 	return b
 }
 

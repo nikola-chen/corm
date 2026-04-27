@@ -556,12 +556,12 @@ func TestMaxSQLLengthExceeded(t *testing.T) {
 	q := mysqlQB().Select("*").From("users")
 
 	// Add many WHERE conditions
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		q = q.Where("field%d = ?", i)
 	}
 
 	// Add many ORDER BY clauses
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		q = q.OrderBy("field"+strconv.Itoa(i), "ASC")
 	}
 

@@ -321,7 +321,7 @@ func ToSnake(s string) string {
 	// Fast path: check if all ASCII and already snake_case
 	allASCII := true
 	hasUpper := false
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		c := s[i]
 		if c >= 0x80 {
 			allASCII = false
@@ -373,7 +373,7 @@ func ToSnake(s string) string {
 func toSnakeASCII(s string) string {
 	buf := make([]byte, 0, len(s)+4)
 	prevLower := false
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		c := s[i]
 		if c >= 'A' && c <= 'Z' {
 			nextLower := i+1 < len(s) && s[i+1] >= 'a' && s[i+1] <= 'z'
@@ -406,7 +406,7 @@ func toSnakeUnicode(s string) string {
 	b.Grow(len(runes) + 8)
 
 	prevLower := false
-	for i := 0; i < len(runes); i++ {
+	for i := range runes {
 		r := runes[i]
 		if unicode.IsUpper(r) {
 			nextLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])

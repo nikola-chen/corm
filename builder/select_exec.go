@@ -171,7 +171,7 @@ func (b *SelectBuilder) Exists(ctx context.Context) (bool, error) {
 		fromAlias: b.fromAlias,
 		joins:     b.joins,
 		where:     b.where,
-		limit:     intPtr(1),
+		limit:     new(1),
 		err:       b.err,
 	}
 
@@ -198,4 +198,4 @@ func (b *SelectBuilder) Exists(ctx context.Context) (bool, error) {
 	return exists, nil
 }
 
-func intPtr(v int) *int { return &v }
+

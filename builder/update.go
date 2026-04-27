@@ -697,7 +697,7 @@ func (b *UpdateBuilder) Limit(limit int) *UpdateBuilder {
 		b.err = errors.New("corm: cannot use Limit on batch update")
 		return b
 	}
-	b.limit = &limit
+	b.limit = new(limit)
 	return b
 }
 

@@ -699,6 +699,27 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.5 (Go 1.26 Modern Syntax Audit)
+
+**Go 1.26 Modernizations:**
+- Adopted `new(expr)` expression parameter syntax, replacing the `intPtr` helper function and `&variable` patterns in Limit/Offset builders.
+- Replaced manual `strings.Builder` loop with `strings.Join` for placeholder generation in `clause.In()` (performance parity in Go 1.26).
+- Applied modern `for i := range n` integer range syntax across the codebase.
+- Replaced `reflect.TypeOf("")` with `reflect.TypeFor[string]()` for generic type retrieval.
+- Adopted `strings.Cut` for cleaner string splitting in identifier parsing.
+- Modernized loop patterns from `for i := 0; i < len(x); i++` to `for i := range x`.
+
+**Performance Optimizations:**
+- Replaced `strings.Contains(column, ".")` with `strings.IndexByte` for single-character searching.
+- Merged multiple `strings.Contains` checks into a single `strings.ContainsAny`.
+- Optimized `TrimSpace/ToUpper` order to process fewer characters.
+- Leveraged Green Tea GC (enabled by default in Go 1.26) for small object allocation speedup.
+
+**Code Quality:**
+- Updated `interface{}` references to `any` in comments.
+- Removed redundant `intPtr` helper function.
+- All 8 packages pass `go vet` and `go test`.
+
 ### v2.1.4 (Third Round Deep Audit)
 
 **Robustness Enhancement:**

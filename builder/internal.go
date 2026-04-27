@@ -124,7 +124,7 @@ func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string
 	}
 
 	// Inline ContainsAny check for better performance
-	for i := 0; i < len(ident); i++ {
+	for i := range ident {
 		c := ident[i]
 		if c == ' ' || c == '(' || c == ')' || c == '+' || c == '-' || c == '/' || c == '*' ||
 			c == ',' || c == '%' || c == '<' || c == '>' || c == '=' || c == '!' || c == '|' ||
@@ -133,8 +133,8 @@ func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string
 		}
 	}
 
-	dotIdx := strings.IndexByte(ident, '.')
-	if dotIdx == -1 {
+	before, after, ok := strings.Cut(ident, ".")
+	if !ok {
 		if !isSimpleIdent(ident) {
 			return "", false
 		}
@@ -142,8 +142,8 @@ func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string
 	}
 
 	// Handle table.column format without Split
-	part1 := ident[:dotIdx]
-	part2 := ident[dotIdx+1:]
+	part1 := before
+	part2 := after
 
 	if part1 == "" || part2 == "" {
 		return "", false
@@ -189,16 +189,13 @@ func validateTable(d dialect.Dialect, table string) (string, error) {
 
 func quoteColumnStrict(d dialect.Dialect, column string) (string, bool) {
 	column = strings.TrimSpace(column)
-	if column == "" || column == "*" || strings.Contains(column, ".") {
+	if column == "" || column == "*" || strings.IndexByte(column, '.') >= 0 {
 		return "", false
 	}
 	if d == nil {
 		return "", false
 	}
-	if strings.ContainsAny(column, " ()+-/*,%<>=!|&^~?:;") {
-		return "", false
-	}
-	if strings.Contains(column, "\"") || strings.Contains(column, "`") {
+	if strings.ContainsAny(column, " ()+-/*,%<>=!|&^~?:;\"`") {
 		return "", false
 	}
 	if !isSimpleIdent(column) {
@@ -208,7 +205,7 @@ func quoteColumnStrict(d dialect.Dialect, column string) (string, bool) {
 }
 
 func normalizeSubqueryOp(op string) (string, bool) {
-	op = strings.TrimSpace(strings.ToUpper(op))
+	op = strings.ToUpper(strings.TrimSpace(op))
 	switch op {
 	case "=", "!=", "<>", ">", "<", ">=", "<=", "IN", "NOT IN", "LIKE", "NOT LIKE":
 		return op, true

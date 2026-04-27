@@ -56,7 +56,7 @@ func colsKey(cols []string) string {
 
 // appendLowerASCII appends the lowercase version of s to buf and returns the new slice.
 func appendLowerASCII(buf []byte, s string) []byte {
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		ch := s[i]
 		if ch >= 0x80 {
 			return append(buf, strings.ToLower(s[i:])...)
@@ -195,7 +195,7 @@ func scanAll(rows *sql.Rows, dest any, strictStructColumns bool, capHint int) er
 				} else if rv.Type().ConvertibleTo(valT) {
 					v = rv.Convert(valT)
 				} else {
-					// If not assignable/convertible, try to fit into interface{} if target is interface
+					// If not assignable/convertible, try to fit into any if target is interface
 					if valT.Kind() == reflect.Interface {
 						v = rv
 					} else {
@@ -229,7 +229,7 @@ func scanAll(rows *sql.Rows, dest any, strictStructColumns bool, capHint int) er
 
 		for {
 			elem := reflect.New(s.Type).Elem()
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if plan[i] == nil {
 					// Each row gets its own dummy to avoid any potential issues
 					var dummy any
@@ -361,7 +361,7 @@ func scanOne(rows *sql.Rows, dest any, strictStructColumns bool) error {
 		n := len(cols)
 		holders := make([]any, n)
 
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if plan[i] == nil {
 				var dummy any
 				holders[i] = &dummy

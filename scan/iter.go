@@ -49,7 +49,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 
 			for rows.Next() {
 				elem := reflect.New(s.Type).Elem()
-				for i := 0; i < n; i++ {
+				for i := range n {
 					if plan[i] == nil {
 						var dummy any
 						holders[i] = &dummy

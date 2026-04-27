@@ -21,7 +21,7 @@ func NormalizeColumn(c string) string {
 	needsLower := false
 	needsStrip := false
 	hasNonASCII := false
-	for i := 0; i < len(c); i++ {
+	for i := range c {
 		ch := c[i]
 		if ch == '.' {
 			lastDot = i
@@ -58,7 +58,7 @@ func NormalizeColumn(c string) string {
 	}
 
 	buf := make([]byte, 0, len(c))
-	for i := 0; i < len(c); i++ {
+	for i := range c {
 		ch := c[i]
 		if ch == '`' || ch == '"' {
 			continue
@@ -87,7 +87,7 @@ func normalizeColumnUnicode(c string, needsStrip bool) string {
 
 func toLowerASCII(s string) string {
 	buf := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		ch := s[i]
 		if ch >= 'A' && ch <= 'Z' {
 			ch += 'a' - 'A'
