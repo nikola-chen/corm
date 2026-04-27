@@ -550,7 +550,25 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.5` (Go 1.26.2)
+- 当前版本：`v2.1.6` (Go 1.26.2)
+
+### v2.1.6 变更摘要（第四轮深度审计）
+
+**Go 1.26 现代化：**
+- 所有 benchmark 函数应用 `b.Loop()`。
+- builder 包采用 `maps.Keys()` + `slices.Collect()` 提取 map 键。
+- executor 格式化中采用 `for i, arg := range args` 遍历。
+- 全部代码通过 `modernize` 静态分析。
+
+**性能优化：**
+- `wrapExecutor` 统一 executor 包装逻辑。
+- `trimSpaceASCII` 提取复用。
+- `colsKey` 缓冲区动态计算。
+
+**测试增强：**
+- scan 包新增未映射列、ScanOne 变体测试（覆盖率 60.2% → 75.1%）。
+- builder 包新增 Union、子查询、JOIN、DISTINCT 等测试（覆盖率 54.8% → 58.6%）。
+- engine 包覆盖率 31.1% → 83.2%，schema 包 71.8% → 89.0%。
 
 ### v2.1.5 变更摘要（Go 1.26 现代语法审计）
 

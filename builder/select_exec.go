@@ -197,5 +197,3 @@ func (b *SelectBuilder) Exists(ctx context.Context) (bool, error) {
 	}
 	return exists, nil
 }
-
-

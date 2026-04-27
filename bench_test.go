@@ -23,7 +23,7 @@ func (BenchUser) TableName() string { return "users" }
 func BenchmarkSchemaParse(b *testing.B) {
 	user := BenchUser{}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := schema.Parse(&user)
 		if err != nil {
 			b.Fatal(err)
@@ -33,22 +33,22 @@ func BenchmarkSchemaParse(b *testing.B) {
 
 func BenchmarkToSnakeASCII(b *testing.B) {
 	b.Run("CamelCase", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = schema.ToSnake("HTTPResponseCode")
 		}
 	})
 	b.Run("AlreadySnake", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = schema.ToSnake("already_snake_case")
 		}
 	})
 	b.Run("SingleWord", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = schema.ToSnake("simple")
 		}
 	})
 	b.Run("Empty", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = schema.ToSnake("")
 		}
 	})
@@ -56,17 +56,17 @@ func BenchmarkToSnakeASCII(b *testing.B) {
 
 func BenchmarkToSnakeUnicode(b *testing.B) {
 	b.Run("GermanUmlaut", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = schema.ToSnake("GrößeHandel")
 		}
 	})
 	b.Run("Cyrillic", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = schema.ToSnake("ПриветМир")
 		}
 	})
 	b.Run("MixedASCIIUnicode", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = schema.ToSnake("HelloWörld")
 		}
 	})
@@ -75,7 +75,7 @@ func BenchmarkToSnakeUnicode(b *testing.B) {
 func BenchmarkToSnakeCacheHit(b *testing.B) {
 	schema.ToSnake("CachedColumnName")
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = schema.ToSnake("CachedColumnName")
 	}
 }
@@ -83,7 +83,7 @@ func BenchmarkToSnakeCacheHit(b *testing.B) {
 func BenchmarkSchemaParseCacheHit(b *testing.B) {
 	schema.Parse(BenchUser{})
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := schema.Parse(BenchUser{})
 		if err != nil {
 			b.Fatal(err)
@@ -99,7 +99,7 @@ func BenchmarkSchemaColumnsAndValues(b *testing.B) {
 	}
 	opts := schema.ExtractOptions{IncludePrimaryKey: true}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := s.ColumnsAndValues(user, opts)
 		if err != nil {
 			b.Fatal(err)
@@ -120,7 +120,7 @@ func BenchmarkSchemaColumnsAndValuesOmitEmpty(b *testing.B) {
 	}
 	opts := schema.ExtractOptions{}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := s.ColumnsAndValues(model, opts)
 		if err != nil {
 			b.Fatal(err)
@@ -188,7 +188,7 @@ func BenchmarkLargeWhereInBuild(b *testing.B) {
 		ids[i] = i + 1
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Select("*").
 			From("users").
 			WhereIn("id", ids).
@@ -206,7 +206,7 @@ func BenchmarkInsertBatchLargeBuild(b *testing.B) {
 		users[i] = BenchUser{Name: "User" + string(rune('A'+i%26)), Age: 20 + i%30}
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Insert("users").
 			Models(users).
 			SQL()
@@ -220,7 +220,7 @@ func BenchmarkInsertBatchLargeBuild(b *testing.B) {
 func BenchmarkSelectBuild(b *testing.B) {
 	qb := builder.MySQL()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Select("id", "name", "email").
 			From("users").
 			Where("age > ?", 18).
@@ -238,7 +238,7 @@ func BenchmarkSelectBuild(b *testing.B) {
 func BenchmarkInsertBuild(b *testing.B) {
 	qb := builder.MySQL()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Insert("users").
 			Columns("name", "email", "age").
 			Values("Alice", "alice@test.com", 25).
@@ -253,7 +253,7 @@ func BenchmarkInsertBuild(b *testing.B) {
 func BenchmarkUpdateBuild(b *testing.B) {
 	qb := builder.MySQL()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Update("users").
 			Set("name", "Bob").
 			Set("age", 30).
@@ -269,7 +269,7 @@ func BenchmarkUpdateBuild(b *testing.B) {
 func BenchmarkDeleteBuild(b *testing.B) {
 	qb := builder.MySQL()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Delete("users").
 			Where("id = ?", 1).
 			SQL()
@@ -283,7 +283,7 @@ func BenchmarkDeleteBuild(b *testing.B) {
 func BenchmarkSelectBuildPostgres(b *testing.B) {
 	qb := builder.Postgres()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Select("id", "name", "email").
 			From("users").
 			Where("age > ?", 18).
@@ -301,7 +301,7 @@ func BenchmarkSelectBuildPostgres(b *testing.B) {
 func BenchmarkSelectComplex(b *testing.B) {
 	qb := builder.MySQL()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Select("u.id", "u.name", "p.title").
 			FromAs("users", "u").
 			LeftJoinAs("posts", "p", clause.Raw("u.id = p.user_id")).
@@ -328,7 +328,7 @@ func BenchmarkToSnake(b *testing.B) {
 		"simple",
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, s := range testCases {
 			_ = schema.ToSnake(s)
 		}
@@ -344,7 +344,7 @@ func BenchmarkBatchUpdateBuild(b *testing.B) {
 		{ID: 3, Name: "Charlie", Age: 35},
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Update("users").
 			Models(users).
 			SQL()
@@ -363,7 +363,7 @@ func BenchmarkInsertBatchBuild(b *testing.B) {
 		{Name: "Charlie", Age: 35},
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Insert("users").
 			Models(users).
 			SQL()
@@ -378,7 +378,7 @@ func BenchmarkWhereInBuild(b *testing.B) {
 	qb := builder.MySQL()
 	ids := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Select("*").
 			From("users").
 			WhereIn("id", ids).
@@ -393,7 +393,7 @@ func BenchmarkWhereInBuild(b *testing.B) {
 func BenchmarkJoinComplexBuild(b *testing.B) {
 	qb := builder.MySQL()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, err := qb.Select("u.name", "p.title", "c.content").
 			FromAs("users", "u").
 			LeftJoinAs("posts", "p", clause.Raw("u.id = p.user_id")).
@@ -424,7 +424,7 @@ func BenchmarkSchemaParseComplex(b *testing.B) {
 	}
 	user := ComplexStruct{}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := schema.Parse(&user)
 		if err != nil {
 			b.Fatal(err)

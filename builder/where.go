@@ -2,6 +2,7 @@ package builder
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 
@@ -88,10 +89,7 @@ func (wb *whereBuilder) WhereMap(conditions map[string]any) {
 	if wb.err != nil {
 		return
 	}
-	keys := make([]string, 0, len(conditions))
-	for k := range conditions {
-		keys = append(keys, k)
-	}
+	keys := slices.Collect(maps.Keys(conditions))
 	slices.Sort(keys)
 
 	for _, k := range keys {

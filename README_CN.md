@@ -675,6 +675,24 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
+### v2.1.6（第四轮深度审计）
+
+**Go 1.26 现代化：**
+- 所有 benchmark 函数应用 `b.Loop()`，简化基准测试循环。
+- builder 包采用 `maps.Keys()` + `slices.Collect()` 提取 map 键，代码更简洁。
+- executor 格式化中将 `for i := 0; i < len(args); i++` 现代化为 `for i, arg := range args`。
+- 全部代码通过 `modernize` 静态分析工具。
+
+**性能优化：**
+- 使用共享的 `wrapExecutor` 辅助函数统一 executor 包装逻辑。
+- 提取 `trimSpaceASCII` 函数，在标识符引用中复用。
+- 优化 `colsKey` 缓冲区大小计算，减少内存重分配。
+
+**测试增强：**
+- scan 包新增未映射列、ScanOne 变体、边界情况测试。
+- builder 包新增 Union、子查询 FROM、JOIN 更新、USING 删除、DISTINCT、FOR UPDATE/FOR SHARE、HAVING 测试。
+- 覆盖率提升：scan 60.2% → 75.1%，builder 54.8% → 58.6%，engine 31.1% → 83.2%，schema 71.8% → 89.0%。
+
 ### v2.1.5（Go 1.26 现代语法审计）
 
 **Go 1.26 现代化：**

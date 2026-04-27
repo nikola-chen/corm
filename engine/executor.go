@@ -76,11 +76,14 @@ func formatArgs(args []any, argFormatter func(any) string, maxItems int, maxLen 
 	}
 	var b strings.Builder
 	b.WriteByte('[')
-	for i := 0; i < len(args) && i < maxItems; i++ {
+	for i, arg := range args {
+		if i >= maxItems {
+			break
+		}
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString(argFormatter(args[i]))
+		b.WriteString(argFormatter(arg))
 		if b.Len() > maxLen {
 			b.WriteString("…")
 			break

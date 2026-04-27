@@ -699,6 +699,24 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.6 (Fourth Round Deep Audit)
+
+**Go 1.26 Modernizations:**
+- Applied `b.Loop()` in all benchmark functions for cleaner benchmark loops.
+- Adopted `maps.Keys()` + `slices.Collect()` for cleaner map key extraction in builder package.
+- Modernized `for i := 0; i < len(args); i++` to `for i, arg := range args` in executor formatting.
+- All code passes `modernize` static analysis tool.
+
+**Performance Optimizations:**
+- Consolidated executor wrapping logic with shared `wrapExecutor` helper.
+- Extracted `trimSpaceASCII` for code reuse in identifier quoting.
+- Optimized `colsKey` buffer sizing to minimize reallocations.
+
+**Testing Enhancements:**
+- Added scan tests for unmapped columns, ScanOne variants, edge cases.
+- Added builder tests for Union, subquery FROM, JOIN updates, USING deletes, DISTINCT, FOR UPDATE/FOR SHARE, HAVING.
+- Coverage improvements: scan 60.2% → 75.1%, builder 54.8% → 58.6%, engine 31.1% → 83.2%, schema 71.8% → 89.0%.
+
 ### v2.1.5 (Go 1.26 Modern Syntax Audit)
 
 **Go 1.26 Modernizations:**

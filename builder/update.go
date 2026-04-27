@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 
@@ -208,10 +209,7 @@ func (b *UpdateBuilder) Map(values map[string]any) *UpdateBuilder {
 		b.err = errors.New("corm: cannot use Map(map) on batch update, use Maps([]map)")
 		return b
 	}
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
+	keys := slices.Collect(maps.Keys(values))
 	slices.Sort(keys)
 
 	for _, k := range keys {

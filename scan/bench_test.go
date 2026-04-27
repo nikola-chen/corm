@@ -78,7 +78,7 @@ func openBenchDB(b *testing.B) *sql.DB {
 func BenchmarkScanAllStruct(b *testing.B) {
 	db := openBenchDB(b)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		rows, err := db.QueryContext(context.Background(), "bench")
 		if err != nil {
 			b.Fatal(err)
@@ -93,7 +93,7 @@ func BenchmarkScanAllStruct(b *testing.B) {
 func BenchmarkScanOneStruct(b *testing.B) {
 	db := openBenchDB(b)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		rows, err := db.QueryContext(context.Background(), "bench")
 		if err != nil {
 			b.Fatal(err)
@@ -108,7 +108,7 @@ func BenchmarkScanOneStruct(b *testing.B) {
 func BenchmarkScanAllMap(b *testing.B) {
 	db := openBenchDB(b)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		rows, err := db.QueryContext(context.Background(), "bench")
 		if err != nil {
 			b.Fatal(err)
@@ -140,7 +140,7 @@ func BenchmarkScanAllStructParallel(b *testing.B) {
 func BenchmarkIterStruct(b *testing.B) {
 	db := openBenchDB(b)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		rows, err := db.QueryContext(context.Background(), "bench")
 		if err != nil {
 			b.Fatal(err)

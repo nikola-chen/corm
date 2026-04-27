@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -240,16 +241,16 @@ func (b *batchUpdateBuilder) mapsInternal(rows []map[string]any, lowerKeys bool)
 		return b
 	}
 	if len(b.columns) == 0 {
-		cols := make([]string, 0, len(rows[0]))
-		for k := range rows[0] {
+		cols := slices.Collect(maps.Keys(rows[0]))
+		for i, k := range cols {
 			if strings.EqualFold(k, b.keyColumn) {
-				continue
+				cols = slices.Delete(cols, i, i+1)
+				break
 			}
 			if _, ok := quoteColumnStrict(b.d, k); !ok {
 				b.err = errors.New("corm: invalid column identifier")
 				return b
 			}
-			cols = append(cols, k)
 		}
 		slices.Sort(cols)
 		b.columns = cols

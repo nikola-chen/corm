@@ -2,6 +2,7 @@ package builder
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 
@@ -77,10 +78,7 @@ func (cb *ConflictBuilder) DoUpdate(sets map[string]any) *InsertBuilder {
 	dName := cb.insertBuilder.d.Name()
 
 	// Keys are sorted for deterministic SQL.
-	keys := make([]string, 0, len(sets))
-	for k := range sets {
-		keys = append(keys, k)
-	}
+	keys := slices.Collect(maps.Keys(sets))
 	slices.Sort(keys)
 
 	if dName == "postgres" {

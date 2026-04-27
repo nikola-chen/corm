@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 
@@ -218,10 +219,7 @@ func (b *InsertBuilder) Map(values map[string]any) *InsertBuilder {
 		return b
 	}
 
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
+	keys := slices.Collect(maps.Keys(values))
 	slices.Sort(keys)
 
 	row := make([]any, 0, len(keys))
