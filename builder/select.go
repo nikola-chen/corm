@@ -624,10 +624,11 @@ func (b *SelectBuilder) OrderByDesc(column string) *SelectBuilder {
 	return b.OrderBy(column, "DESC")
 }
 
-// Limit sets the LIMIT.
+// Limit sets the LIMIT. A value of 0 or negative means no limit (the LIMIT clause is omitted).
 func (b *SelectBuilder) Limit(limit int) *SelectBuilder {
-	if limit < 0 {
-		limit = 0
+	if limit <= 0 {
+		b.limit = nil
+		return b
 	}
 	b.limit = new(limit)
 	return b
@@ -638,10 +639,11 @@ func (b *SelectBuilder) LimitOffset(limit, offset int) *SelectBuilder {
 	return b.Limit(limit).Offset(offset)
 }
 
-// Offset sets the OFFSET.
+// Offset sets the OFFSET. A value of 0 or negative means no offset (the OFFSET clause is omitted).
 func (b *SelectBuilder) Offset(offset int) *SelectBuilder {
-	if offset < 0 {
-		offset = 0
+	if offset <= 0 {
+		b.offset = nil
+		return b
 	}
 	b.offset = new(offset)
 	return b

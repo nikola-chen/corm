@@ -699,6 +699,15 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.8 (Sixth Round Deep Audit)
+
+**LIMIT Syntax Audit & Fix:**
+- `SelectBuilder.Limit(0)` and `Offset(0)` now correctly omit the LIMIT/OFFSET clause (semantics: no limit/no offset) instead of generating `LIMIT 0` (returns 0 rows).
+- Fixed `cap` variable shadowing the built-in `cap()` function in `colsKey`, renamed to `totalCap`.
+
+**Code Style:**
+- No built-in function name conflicts.
+
 ### v2.1.7 (Fifth Round Deep Audit)
 
 **Go 1.26 Modernizations Continued:**

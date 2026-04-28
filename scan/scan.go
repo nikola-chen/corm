@@ -32,12 +32,12 @@ func colsKey(cols []string) string {
 	}
 
 	// Estimate total capacity to avoid reallocations
-	cap := 0
+	totalCap := 0
 	for _, c := range cols {
-		cap += len(c) + 1
+		totalCap += len(c) + 1
 	}
 
-	buf := make([]byte, 0, cap)
+	buf := make([]byte, 0, totalCap)
 
 	for i, c := range cols {
 		if i > 0 {
