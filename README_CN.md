@@ -675,6 +675,18 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
+### v2.1.9（第七轮深度审计）
+
+**Bug 修复：**
+- 修复 `batchUpdateBuilder.mapsInternal()` 列验证遗漏：当从 map key 推导列名时，位于 key column 之后的 key 未被 `quoteColumnStrict` 校验，存在未校验标识符绕过检查的潜在风险。现在先校验所有 key，再移除 key column，确保所有列都经过安全验证。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过。
+- 未发现死代码或未使用的导入。
+- 未发现废弃 API 使用。
+- 所有 `sync.Pool`、`sync.RWMutex` 模式验证正确。
+- 测试覆盖率：总体 65.7%（internal 100%、dialect 97.2%、schema 89.0%、engine 83.2%、scan 76.4%、builder 58.5%、clause 77.6%）。
+
 ### v2.1.8（第六轮深度审计）
 
 **LIMIT 语法审计与修复：**

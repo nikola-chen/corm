@@ -699,6 +699,18 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.9 (Seventh Round Deep Audit)
+
+**Bug Fixes:**
+- Fixed `batchUpdateBuilder.mapsInternal()` column validation gap: when deriving columns from map keys, columns appearing after the key column in iteration order were not validated by `quoteColumnStrict`. Now all map keys are validated before the key column is removed, closing a potential edge case where unvalidated column identifiers could bypass checks.
+
+**Audit Summary:**
+- `go vet` clean, all tests pass.
+- No dead code or unused imports found.
+- No deprecated API usage detected.
+- All `sync.Pool`, `sync.RWMutex` patterns verified correct.
+- Coverage: overall 65.7% (100% internal, 97.2% dialect, 89.0% schema, 83.2% engine, 76.4% scan, 58.5% builder, 77.6% clause).
+
 ### v2.1.8 (Sixth Round Deep Audit)
 
 **LIMIT Syntax Audit & Fix:**

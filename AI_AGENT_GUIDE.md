@@ -550,7 +550,16 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.7` (Go 1.26.2)
+- 当前版本：`v2.1.8` (Go 1.26.2)
+
+### v2.1.8 变更摘要（第六轮深度审计）
+
+**LIMIT 语法审计与修复：**
+- `SelectBuilder.Limit(0)` 和 `Offset(0)` 现在正确省略 LIMIT/OFFSET 子句（语义：无限制/无偏移），而非生成 `LIMIT 0`（返回 0 行）。
+- 修复 `colsKey` 中 `cap` 变量与内置函数 `cap()` 的命名冲突，改为 `totalCap`。
+
+**代码风格：**
+- 无内置函数名冲突。
 
 ### v2.1.7 变更摘要（第五轮深度审计）
 
