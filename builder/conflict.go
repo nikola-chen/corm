@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -43,7 +42,7 @@ func (cb *ConflictBuilder) DoNothing() *InsertBuilder {
 			for _, col := range cb.conflictCols {
 				q, ok := quoteColumnStrict(cb.insertBuilder.d, col)
 				if !ok {
-					cb.insertBuilder.err = errors.New("corm: invalid column identifier in conflict clause")
+					cb.insertBuilder.err = errConflictColumn
 					return cb.insertBuilder
 				}
 				qCols = append(qCols, q)
@@ -57,9 +56,9 @@ func (cb *ConflictBuilder) DoNothing() *InsertBuilder {
 		// but `ON DUPLICATE KEY UPDATE id=id` is a common hack.
 		// However, it's safer to just let Suffix or user define the query.
 		// Alternatively, we use `INSERT IGNORE` which cannot be added here (it's prefix).
-		cb.insertBuilder.err = errors.New("corm: DoNothing() is only supported on Postgres. Use InsertIgnore() or raw suffix on MySQL.")
+		cb.insertBuilder.err = errConflictDoNothing
 	} else {
-		cb.insertBuilder.err = errors.New("corm: unsupported dialect for OnConflict")
+		cb.insertBuilder.err = errConflictDialect
 	}
 
 	return cb.insertBuilder
@@ -76,76 +75,70 @@ func (cb *ConflictBuilder) DoUpdate(sets map[string]any) *InsertBuilder {
 	}
 
 	dName := cb.insertBuilder.d.Name()
-
-	// Keys are sorted for deterministic SQL.
 	keys := slices.Collect(maps.Keys(sets))
 	slices.Sort(keys)
 
 	if dName == "postgres" {
-		sqlStr := "ON CONFLICT"
-		if len(cb.conflictCols) > 0 {
-			qCols := make([]string, 0, len(cb.conflictCols))
-			for _, col := range cb.conflictCols {
-				q, ok := quoteColumnStrict(cb.insertBuilder.d, col)
-				if !ok {
-					cb.insertBuilder.err = errors.New("corm: invalid column identifier in conflict clause")
-					return cb.insertBuilder
-				}
-				qCols = append(qCols, q)
-			}
-			sqlStr += " (" + strings.Join(qCols, ", ") + ")"
-		} else {
-			cb.insertBuilder.err = errors.New("corm: Postgres requires constraint columns for ON CONFLICT DO UPDATE")
+		if len(cb.conflictCols) == 0 {
+			cb.insertBuilder.err = errConflictNoCols
 			return cb.insertBuilder
 		}
-
-		sqlStr += " DO UPDATE SET "
-		args := make([]any, 0, len(keys))
-		setStrs := make([]string, 0, len(keys))
-
-		for _, k := range keys {
-			q, ok := quoteColumnStrict(cb.insertBuilder.d, k)
-			if !ok {
-				cb.insertBuilder.err = errors.New("corm: invalid column identifier in conflict clause")
-				return cb.insertBuilder
-			}
-			v := sets[k]
-			if e, isExpr := v.(clause.Expr); isExpr {
-				setStrs = append(setStrs, q+" = "+e.SQL)
-				args = append(args, e.Args...)
-			} else {
-				setStrs = append(setStrs, q+" = ?")
-				args = append(args, v)
-			}
+		sqlStr, args, err := cb.buildConflictPrefix("ON CONFLICT", "DO UPDATE SET", keys, sets)
+		if err != nil {
+			cb.insertBuilder.err = err
+			return cb.insertBuilder
 		}
-		sqlStr += strings.Join(setStrs, ", ")
 		cb.insertBuilder.suffix = append(cb.insertBuilder.suffix, clause.Raw(sqlStr, args...))
-
 	} else if dName == "mysql" {
-		sqlStr := "ON DUPLICATE KEY UPDATE "
-		args := make([]any, 0, len(keys))
-		setStrs := make([]string, 0, len(keys))
-
-		for _, k := range keys {
-			q, ok := quoteColumnStrict(cb.insertBuilder.d, k)
-			if !ok {
-				cb.insertBuilder.err = errors.New("corm: invalid column identifier in conflict clause")
-				return cb.insertBuilder
-			}
-			v := sets[k]
-			if e, isExpr := v.(clause.Expr); isExpr {
-				setStrs = append(setStrs, q+" = "+e.SQL)
-				args = append(args, e.Args...)
-			} else {
-				setStrs = append(setStrs, q+" = ?")
-				args = append(args, v)
-			}
+		sqlStr, args, err := cb.buildSetClause(keys, sets)
+		if err != nil {
+			cb.insertBuilder.err = err
+			return cb.insertBuilder
 		}
-		sqlStr += strings.Join(setStrs, ", ")
+		sqlStr = "ON DUPLICATE KEY UPDATE " + sqlStr
 		cb.insertBuilder.suffix = append(cb.insertBuilder.suffix, clause.Raw(sqlStr, args...))
 	} else {
-		cb.insertBuilder.err = errors.New("corm: unsupported dialect for OnConflict")
+		cb.insertBuilder.err = errConflictDialect
 	}
 
 	return cb.insertBuilder
+}
+
+func (cb *ConflictBuilder) buildConflictPrefix(prefix, setPrefix string, keys []string, sets map[string]any) (string, []any, error) {
+	sqlStr := prefix
+	qCols := make([]string, 0, len(cb.conflictCols))
+	for _, col := range cb.conflictCols {
+		q, ok := quoteColumnStrict(cb.insertBuilder.d, col)
+		if !ok {
+			return "", nil, errConflictColumn
+		}
+		qCols = append(qCols, q)
+	}
+	sqlStr += " (" + strings.Join(qCols, ", ") + ") " + setPrefix + " "
+
+	setSQL, setArgs, err := cb.buildSetClause(keys, sets)
+	if err != nil {
+		return "", nil, err
+	}
+	return sqlStr + setSQL, setArgs, nil
+}
+
+func (cb *ConflictBuilder) buildSetClause(keys []string, sets map[string]any) (string, []any, error) {
+	args := make([]any, 0, len(keys))
+	setStrs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		q, ok := quoteColumnStrict(cb.insertBuilder.d, k)
+		if !ok {
+			return "", nil, errConflictColumn
+		}
+		v := sets[k]
+		if e, isExpr := v.(clause.Expr); isExpr {
+			setStrs = append(setStrs, q+" = "+e.SQL)
+			args = append(args, e.Args...)
+		} else {
+			setStrs = append(setStrs, q+" = ?")
+			args = append(args, v)
+		}
+	}
+	return strings.Join(setStrs, ", "), args, nil
 }

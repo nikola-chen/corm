@@ -63,7 +63,7 @@ func (a *argBuilder) appendExpr(e clause.Expr) error {
 		return nil
 	}
 	if strings.IndexByte(sql, '?') < 0 {
-		return errors.New("corm: missing placeholders for args")
+		return errMissingPlaceholders
 	}
 	expected := len(e.Args)
 	if a.usesQuestionPlaceholders() {
@@ -100,95 +100,90 @@ func (a *argBuilder) checkAndWrite(sql string) error {
 	return nil
 }
 
-func countQuestionPlaceholders(sql string, allowBackslashEscape bool) int {
-	if strings.IndexByte(sql, '?') < 0 {
-		return 0
-	}
-	inSingleQuote := false
-	inDoubleQuote := false
-	inLineComment := false
-	inBlockComment := false
-	dollarTag := ""
+type sqlTokenType int
 
-	i := 0
+const (
+	sqlTokenText        sqlTokenType = iota
+	sqlTokenPlaceholder              // ?
+	sqlTokenSingleQuote
+	sqlTokenDoubleQuote
+	sqlTokenLineComment
+	sqlTokenBlockComment
+	sqlTokenDollarQuote
+)
+
+type sqlToken struct {
+	kind sqlTokenType
+	text string
+	end  int
+}
+
+func tokenizeSQL(sql string, allowBackslashEscape bool) []sqlToken {
+	var tokens []sqlToken
 	n := len(sql)
-	count := 0
+	i := 0
 
 	for i < n {
-		if inLineComment {
-			ch := sql[i]
-			i++
-			if ch == '\n' {
-				inLineComment = false
+		switch {
+		case i+1 < n && sql[i] == '-' && sql[i+1] == '-':
+			start := i
+			i += 2
+			for i < n && sql[i] != '\n' {
+				i++
 			}
-			continue
-		}
-		if inBlockComment {
-			if i+1 < n && sql[i] == '*' && sql[i+1] == '/' {
-				i += 2
-				inBlockComment = false
-				continue
+			if i < n {
+				i++
 			}
-			i++
-			continue
-		}
-		if dollarTag != "" {
-			if strings.HasPrefix(sql[i:], dollarTag) {
-				i += len(dollarTag)
-				dollarTag = ""
-				continue
-			}
-			i++
-			continue
-		}
-		if inSingleQuote {
-			ch := sql[i]
-			i++
-			if allowBackslashEscape && ch == '\\' {
-				if i < n {
-					i++
-				}
-				continue
-			}
-			if ch == '\'' {
-				if i < n && sql[i] == '\'' {
-					i++
-				} else {
-					inSingleQuote = false
-				}
-			}
-			continue
-		}
-		if inDoubleQuote {
-			ch := sql[i]
-			i++
-			if ch == '"' {
-				inDoubleQuote = false
-			}
-			continue
-		}
+			tokens = append(tokens, sqlToken{kind: sqlTokenLineComment, text: sql[start:i], end: i})
 
-		if i+1 < n && sql[i] == '-' && sql[i+1] == '-' {
+		case i+1 < n && sql[i] == '/' && sql[i+1] == '*':
+			start := i
 			i += 2
-			inLineComment = true
-			continue
-		}
-		if i+1 < n && sql[i] == '/' && sql[i+1] == '*' {
-			i += 2
-			inBlockComment = true
-			continue
-		}
-		if sql[i] == '\'' {
+			for i+1 < n && !(sql[i] == '*' && sql[i+1] == '/') {
+				i++
+			}
+			if i+1 < n {
+				i += 2
+			} else {
+				i = n
+			}
+			tokens = append(tokens, sqlToken{kind: sqlTokenBlockComment, text: sql[start:i], end: i})
+
+		case sql[i] == '\'':
+			start := i
 			i++
-			inSingleQuote = true
-			continue
-		}
-		if sql[i] == '"' {
+			for i < n {
+				if allowBackslashEscape && sql[i] == '\\' {
+					i += 2
+					if i > n {
+						i = n
+					}
+					continue
+				}
+				if sql[i] == '\'' {
+					i++
+					if i < n && sql[i] == '\'' {
+						i++
+						continue
+					}
+					break
+				}
+				i++
+			}
+			tokens = append(tokens, sqlToken{kind: sqlTokenSingleQuote, text: sql[start:i], end: i})
+
+		case sql[i] == '"':
+			start := i
 			i++
-			inDoubleQuote = true
-			continue
-		}
-		if sql[i] == '$' {
+			for i < n && sql[i] != '"' {
+				i++
+			}
+			if i < n {
+				i++
+			}
+			tokens = append(tokens, sqlToken{kind: sqlTokenDoubleQuote, text: sql[start:i], end: i})
+
+		case sql[i] == '$':
 			j := i + 1
 			for j < n {
 				ch := sql[j]
@@ -200,16 +195,53 @@ func countQuestionPlaceholders(sql string, allowBackslashEscape bool) int {
 			}
 			if j < n && sql[j] == '$' {
 				tag := sql[i : j+1]
+				tagLen := len(tag)
+				start := i
 				i = j + 1
-				dollarTag = tag
+				for i+tagLen <= n {
+					if sql[i:i+tagLen] == tag {
+						i += tagLen
+						break
+					}
+					i++
+				}
+				tokens = append(tokens, sqlToken{kind: sqlTokenDollarQuote, text: sql[start:i], end: i})
 				continue
 			}
-		}
+			fallthrough
 
-		if sql[i] == '?' {
+		default:
+			start := i
+			for i < n {
+				c := sql[i]
+				if c == '\'' || c == '"' || c == '?' || (c == '-' && i+1 < n && sql[i+1] == '-') || (c == '/' && i+1 < n && sql[i+1] == '*') || c == '$' {
+					break
+				}
+				i++
+			}
+			if i > start {
+				tokens = append(tokens, sqlToken{kind: sqlTokenText, text: sql[start:i], end: i})
+			} else if i < n && sql[i] == '?' {
+				tokens = append(tokens, sqlToken{kind: sqlTokenPlaceholder, text: "?", end: i + 1})
+				i++
+			} else if i < n {
+				i++
+			}
+		}
+	}
+	return tokens
+}
+
+func countQuestionPlaceholders(sql string, allowBackslashEscape bool) int {
+	if strings.IndexByte(sql, '?') < 0 {
+		return 0
+	}
+	tokens := tokenizeSQL(sql, allowBackslashEscape)
+	count := 0
+	for _, t := range tokens {
+		if t.kind == sqlTokenPlaceholder {
 			count++
 		}
-		i++
 	}
 	return count
 }
@@ -219,187 +251,59 @@ func rewritePlaceholders(sql string, startIndex int, placeholder func(int) strin
 		return sql, startIndex, nil
 	}
 
-	isSimple := true
-	for i := range sql {
-		c := sql[i]
-		if c == '\'' || c == '"' || c == '-' || c == '/' || c == '$' {
-			isSimple = false
+	tokens := tokenizeSQL(sql, allowBackslashEscape)
+
+	hasPlaceholder := false
+	for _, t := range tokens {
+		if t.kind == sqlTokenPlaceholder {
+			hasPlaceholder = true
 			break
 		}
 	}
-
-	if isSimple {
-		count := 0
-		for i := range sql {
-			if sql[i] == '?' {
-				count++
-			}
-		}
-		if count == 0 {
-			return sql, startIndex, nil
-		}
-		var out strings.Builder
-		out.Grow(len(sql) + count*4)
-		nextIndex := startIndex
-		for i := range sql {
-			if sql[i] == '?' {
-				out.WriteString(placeholder(nextIndex))
-				nextIndex++
-			} else {
-				out.WriteByte(sql[i])
-			}
-		}
-		return out.String(), nextIndex, nil
+	if !hasPlaceholder {
+		return sql, startIndex, nil
 	}
 
+	estimatedLen := len(sql)
+	for _, t := range tokens {
+		if t.kind == sqlTokenPlaceholder {
+			estimatedLen += 6
+		}
+	}
 	var out strings.Builder
-	out.Grow(len(sql) + 8)
+	out.Grow(estimatedLen)
 
-	inSingleQuote := false
-	inDoubleQuote := false
-	inLineComment := false
-	inBlockComment := false
-	dollarTag := ""
-
-	i := 0
-	n := len(sql)
 	nextIndex := startIndex
-
-	for i < n {
-		if inLineComment {
-			ch := sql[i]
-			out.WriteByte(ch)
-			i++
-			if ch == '\n' {
-				inLineComment = false
-			}
-			continue
-		}
-		if inBlockComment {
-			if i+1 < n && sql[i] == '*' && sql[i+1] == '/' {
-				out.WriteString("*/")
-				i += 2
-				inBlockComment = false
-				continue
-			}
-			out.WriteByte(sql[i])
-			i++
-			continue
-		}
-		if dollarTag != "" {
-			if strings.HasPrefix(sql[i:], dollarTag) {
-				out.WriteString(dollarTag)
-				i += len(dollarTag)
-				dollarTag = ""
-				continue
-			}
-			out.WriteByte(sql[i])
-			i++
-			continue
-		}
-		if inSingleQuote {
-			ch := sql[i]
-			out.WriteByte(ch)
-			i++
-			if allowBackslashEscape && ch == '\\' {
-				if i < n {
-					out.WriteByte(sql[i])
-					i++
-				}
-				continue
-			}
-			if ch == '\'' {
-				if i < n && sql[i] == '\'' {
-					out.WriteByte(sql[i])
-					i++
-				} else {
-					inSingleQuote = false
+	for _, t := range tokens {
+		switch t.kind {
+		case sqlTokenPlaceholder:
+			if isPostgres {
+				afterIdx := t.end
+				if afterIdx < len(sql) {
+					j := afterIdx
+					for j < len(sql) {
+						ch := sql[j]
+						if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+							j++
+							continue
+						}
+						break
+					}
+					if j < len(sql) {
+						switch sql[j] {
+						case '|', '&':
+							return "", startIndex, errPGJsonbArrayOp
+						case '\'', '"':
+							return "", startIndex, errPGJsonbOp
+						}
+					}
 				}
 			}
-			continue
+			out.WriteString(placeholder(nextIndex))
+			nextIndex++
+		default:
+			out.WriteString(t.text)
 		}
-		if inDoubleQuote {
-			ch := sql[i]
-			out.WriteByte(ch)
-			i++
-			if ch == '"' {
-				inDoubleQuote = false
-			}
-			continue
-		}
-
-		if i+1 < n && sql[i] == '-' && sql[i+1] == '-' {
-			out.WriteString("--")
-			i += 2
-			inLineComment = true
-			continue
-		}
-		if i+1 < n && sql[i] == '/' && sql[i+1] == '*' {
-			out.WriteString("/*")
-			i += 2
-			inBlockComment = true
-			continue
-		}
-		if sql[i] == '\'' {
-			out.WriteByte('\'')
-			i++
-			inSingleQuote = true
-			continue
-		}
-		if sql[i] == '"' {
-			out.WriteByte('"')
-			i++
-			inDoubleQuote = true
-			continue
-		}
-		if sql[i] == '$' {
-			j := i + 1
-			for j < n {
-				ch := sql[j]
-				if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' {
-					j++
-					continue
-				}
-				break
-			}
-			if j < n && sql[j] == '$' {
-				tag := sql[i : j+1]
-				out.WriteString(tag)
-				i = j + 1
-				dollarTag = tag
-				continue
-			}
-		}
-
-		if sql[i] != '?' {
-			out.WriteByte(sql[i])
-			i++
-			continue
-		}
-
-		if isPostgres {
-			j := i + 1
-			for j < n {
-				ch := sql[j]
-				if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-					j++
-					continue
-				}
-				break
-			}
-			if j < n {
-				switch sql[j] {
-				case '|', '&':
-					return "", startIndex, errors.New("corm: postgres jsonb operator '?|/?&' conflicts with placeholder '?', use jsonb_exists_any/jsonb_exists_all")
-				case '\'', '"':
-					return "", startIndex, errors.New("corm: postgres jsonb operator '?' conflicts with placeholder '?', use jsonb_exists")
-				}
-			}
-		}
-
-		out.WriteString(placeholder(nextIndex))
-		nextIndex++
-		i++
 	}
 
 	return out.String(), nextIndex, nil

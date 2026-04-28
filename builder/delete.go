@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 
 	"github.com/nikola-chen/corm/clause"
@@ -199,7 +198,7 @@ func (b *DeleteBuilder) Using(table string) *DeleteBuilder {
 	}
 	qTable, ok := quoteIdentStrict(b.d, table)
 	if !ok {
-		b.err = errors.New("corm: invalid table identifier in using")
+		b.err = errInvalidTable
 		return b
 	}
 	b.using = append(b.using, qTable)
@@ -213,12 +212,12 @@ func (b *DeleteBuilder) UsingAs(table, alias string) *DeleteBuilder {
 	}
 	qTable, ok := quoteIdentStrict(b.d, table)
 	if !ok {
-		b.err = errors.New("corm: invalid table identifier in using")
+		b.err = errInvalidTable
 		return b
 	}
 	alias = strings.TrimSpace(alias)
 	if !isSimpleIdent(alias) {
-		b.err = errors.New("corm: invalid alias identifier")
+		b.err = errInvalidAlias
 		return b
 	}
 	b.using = append(b.using, qTable+" AS "+alias)
@@ -232,7 +231,7 @@ func (b *DeleteBuilder) Returning(columns ...string) *DeleteBuilder {
 	}
 	for _, c := range columns {
 		if _, ok := quoteColumnStrict(b.d, c); !ok {
-			b.err = errors.New("corm: invalid column identifier")
+			b.err = errInvalidColumn
 			return b
 		}
 	}
@@ -246,10 +245,10 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 		return "", nil, b.err
 	}
 	if b.d == nil {
-		return "", nil, errors.New("corm: nil dialect")
+		return "", nil, errNilDialect
 	}
 	if strings.TrimSpace(b.table) == "" {
-		return "", nil, errors.New("corm: missing table for delete")
+		return "", nil, errMissingTable
 	}
 
 	buf := getBuffer()
@@ -259,7 +258,7 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 	buf.WriteString("DELETE FROM ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)
 	if !ok {
-		return "", nil, errors.New("corm: invalid table identifier")
+		return "", nil, errInvalidTable
 	}
 	buf.WriteString(qTable)
 
@@ -277,15 +276,15 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 		return "", nil, err
 	}
 	if !b.allowEmptyWhere && len(b.where.items) == 0 {
-		return "", nil, errors.New("corm: delete without where clause is not allowed, use AllowEmptyWhere() to override")
+		return "", nil, errDeleteNoWhere
 	}
 
 	if b.limit != nil {
 		if *b.limit < 0 {
-			return "", nil, errors.New("corm: invalid limit")
+			return "", nil, errInvalidLimit
 		}
 		if b.d.Name() != "mysql" {
-			return "", nil, errors.New("corm: delete limit is only supported by mysql dialect")
+			return "", nil, errDeleteLimitDialect
 		}
 		buf.WriteString(" LIMIT ")
 		buf.WriteString(ab.add(*b.limit))
@@ -293,7 +292,7 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 
 	if len(b.returning) > 0 {
 		if !b.d.SupportsReturning() {
-			return "", nil, errors.New("corm: RETURNING is not supported by " + b.d.Name() + " dialect")
+			return "", nil, returningDialectErr(b.d.Name())
 		}
 		buf.WriteString(" RETURNING ")
 		for i, c := range b.returning {
@@ -302,7 +301,7 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 			}
 			qCol, ok := quoteColumnStrict(b.d, c)
 			if !ok {
-				return "", nil, errors.New("corm: invalid column identifier")
+				return "", nil, errInvalidColumn
 			}
 			buf.WriteString(qCol)
 		}
@@ -312,19 +311,24 @@ func (b *DeleteBuilder) SQL() (string, []any, error) {
 }
 
 // Limit adds a LIMIT clause.
+// A value of 0 or negative means no limit (the LIMIT clause is omitted).
 // Note: LIMIT on DELETE is only supported by MySQL. PostgreSQL does not support LIMIT on DELETE.
 // Using Limit with PostgreSQL will return an error at SQL generation time.
 func (b *DeleteBuilder) Limit(limit int) *DeleteBuilder {
 	if b.err != nil {
 		return b
 	}
-	b.limit = new(limit)
+	if limit <= 0 {
+		b.limit = nil
+		return b
+	}
+	b.limit = &limit
 	return b
 }
 
 func (b *DeleteBuilder) Exec(ctx context.Context) (sql.Result, error) {
 	if b.exec == nil {
-		return nil, errors.New("corm: missing Executor for delete")
+		return nil, errMissingExecutor
 	}
 	sqlStr, args, err := b.SQL()
 	if err != nil {

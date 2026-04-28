@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"errors"
 	"strings"
 	"sync"
 	"unicode"
@@ -109,6 +108,14 @@ func quoteIdentStrict(d dialect.Dialect, ident string) (string, bool) {
 	return quoteIdentWithStar(d, ident, false)
 }
 
+var specialChars [256]bool
+
+func init() {
+	for _, c := range " ()+-/*,%<>=!|&^~?:;\"`" {
+		specialChars[c] = true
+	}
+}
+
 func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string, bool) {
 	ident = trimSpaceASCII(ident)
 
@@ -123,12 +130,8 @@ func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string
 		return "*", true
 	}
 
-	// Inline ContainsAny check for better performance
 	for i := range ident {
-		c := ident[i]
-		if c == ' ' || c == '(' || c == ')' || c == '+' || c == '-' || c == '/' || c == '*' ||
-			c == ',' || c == '%' || c == '<' || c == '>' || c == '=' || c == '!' || c == '|' ||
-			c == '&' || c == '^' || c == '~' || c == '?' || c == ':' || c == ';' || c == '"' || c == '`' {
+		if specialChars[ident[i]] {
 			return "", false
 		}
 	}
@@ -171,31 +174,27 @@ func quoteIdentWithStar(d dialect.Dialect, ident string, allowStar bool) (string
 
 func validateTable(d dialect.Dialect, table string) (string, error) {
 	if strings.TrimSpace(table) == "" {
-		return "", errors.New("corm: missing table name")
+		return "", errMissingTable
 	}
 	if d == nil {
-		return "", errors.New("corm: nil dialect")
+		return "", errNilDialect
 	}
-	// Apply same length limit as SAVEPOINT (128 chars) for consistency
 	if len(table) > 128 {
-		return "", errors.New("corm: table name exceeds maximum length of 128 characters")
+		return "", errTableNameTooLong
 	}
 	qTable, ok := quoteTableStrict(d, table)
 	if !ok {
-		return "", errors.New("corm: invalid table identifier")
+		return "", errInvalidTable
 	}
 	return qTable, nil
 }
 
 func quoteColumnStrict(d dialect.Dialect, column string) (string, bool) {
 	column = strings.TrimSpace(column)
-	if column == "" || column == "*" || strings.IndexByte(column, '.') >= 0 {
+	if column == "" || column == "*" || strings.ContainsRune(column, '.') {
 		return "", false
 	}
 	if d == nil {
-		return "", false
-	}
-	if strings.ContainsAny(column, " ()+-/*,%<>=!|&^~?:;\"`") {
 		return "", false
 	}
 	if !isSimpleIdent(column) {

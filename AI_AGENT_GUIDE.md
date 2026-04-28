@@ -550,7 +550,60 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.8` (Go 1.26.2)
+- 当前版本：`v2.1.10` (Go 1.26.2)
+
+### v2.1.10 变更摘要（第九轮、第十轮 & 第十一轮深度审计）
+
+**Bug 修复：**
+- 修复 `assignInt64` 安全 bug：`uint`/`uint64` 类型未检查负值即进行转换，可能静默产生错误结果。已为无符号整数类型添加溢出检查。
+
+**代码风格与一致性：**
+- 统一 `UpdateBuilder.Limit()` 和 `DeleteBuilder.Limit()` 行为与 `SelectBuilder.Limit()` 一致：值 ≤ 0 表示"无限制"（省略 LIMIT 子句），而非静默接受负值。
+- 简化 `batchUpdateBuilder.Models()` 中冗余的 nil 检查。
+- 将 `builder` 和 `engine` 包中所有内联 `errors.New("corm: ...")` 替换为哨兵错误（sentinel errors），实现一致的、可比较的错误处理。
+- 新增 `engine/errors.go`，集中定义哨兵错误（`errEngineNotInit`、`errContextCanceled`）。
+- 将 `errors.New("corm: unsupported dialect: " + driverName)` 替换为 `fmt.Errorf`，使用正确的格式化方式。
+
+**死代码清理：**
+- 移除 `batchUpdateBuilder` 中未被调用的方法：`Columns()`、`IncludePrimaryKey()`、`IncludeAuto()`、`IncludeReadonly()`、`IncludeZero()`。
+
+**架构重构：**
+- 移除冗余包装函数，直接调用 `internal.NormalizeColumn`。
+- 从 `ConflictBuilder.DoUpdate()` 提取共享的 `buildSetClause()` 和 `buildConflictPrefix()` 辅助函数，消除 PostgreSQL 和 MySQL 分支间约 40 行重复代码。
+
+**安全与健壮性：**
+- 事务管理中增加 savepoint 名称校验，防止 SQL 注入。
+- 增强 `defaultArgFormatter`，在 SQL 日志中正确脱敏敏感类型。
+
+**测试增强：**
+- 新增 `In()`、`Like`、`Alias` 函数及 `defaultArgFormatter` 的全面测试。
+- 新增 `SelectBuilder.All/One/Scalar/Count/Exists`、`InsertBuilder.One` 及 `Iter` 在 nil executor 下的错误路径测试。
+- 更新 LIMIT 测试以匹配新语义。
+- 覆盖率：总体 70.7%。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过，`go test -race` 零竞态。
+- 未发现死代码或未使用的导入。
+- `modernize` 静态分析工具零告警。
+
+### v2.1.9 变更摘要（第八轮深度审计）
+
+**Bug 修复：**
+- 修复 `batchUpdateBuilder.mapsInternal()` 列验证遗漏：当从 map key 推导列名时，位于 key column 之后的 key 未被 `quoteColumnStrict` 校验，存在未校验标识符绕过检查的潜在风险。现在先校验所有 key，再移除 key column，确保所有列都经过安全验证。
+
+**架构重构：**
+- 提取通用 SQL tokenizer（`tokenizeSQL`），消除 `countQuestionPlaceholders` 和 `rewritePlaceholders` 之间约 200 行重复的状态机解析逻辑，统一为声明式 token 遍历模式。
+- 移除冗余包装函数 `normalizeInsertColumnKey`，直接调用 `internal.NormalizeColumn`。
+- 优化 `quoteIdentWithStar` 中的特殊字符检测，使用 `[256]bool` 查找表替代内联多条件分支，提升标识符校验性能。
+- 简化 `quoteColumnStrict`，移除与 `isSimpleIdent` 重复的特殊字符检测逻辑。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过。
+- 未发现死代码或未使用的导入。
+- 未发现废弃 API 使用。
+- 所有 `sync.Pool`、`sync.RWMutex` 模式验证正确。
+- `modernize` 静态分析工具零告警。
+- 测试覆盖率：总体 65.7%（internal 100%、dialect 97.2%、schema 89.0%、engine 83.2%、scan 76.4%、builder 58.5%、clause 77.6%）。
 
 ### v2.1.8 变更摘要（第六轮深度审计）
 

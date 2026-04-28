@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
-	"errors"
+	"fmt"
 	"iter"
 	"time"
 
@@ -89,7 +89,7 @@ func Open(driverName, dsn string, opts ...Option) (*Engine, error) {
 func WithDB(db *sql.DB, driverName string, opts ...Option) (*Engine, error) {
 	d, ok := dialect.Get(driverName)
 	if !ok {
-		return nil, errors.New("corm: unsupported dialect: " + driverName)
+		return nil, fmt.Errorf("corm: unsupported dialect: %s", driverName)
 	}
 
 	e := &Engine{
@@ -138,7 +138,7 @@ func (e *Engine) Dialect() dialect.Dialect {
 // Close closes the database connection.
 func (e *Engine) Close() error {
 	if e == nil || e.db == nil {
-		return errors.New("corm: engine is not initialized")
+		return errEngineNotInit
 	}
 	return e.db.Close()
 }
@@ -154,7 +154,7 @@ func (e *Engine) Stats() sql.DBStats {
 // Ping verifies a connection to the database is still alive.
 func (e *Engine) Ping(ctx context.Context) error {
 	if e == nil || e.db == nil {
-		return errors.New("corm: engine is not initialized")
+		return errEngineNotInit
 	}
 	return e.db.PingContext(ctx)
 }

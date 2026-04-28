@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"reflect"
 	"strings"
 )
@@ -21,20 +20,20 @@ func (b *InsertBuilder) ExecAndReturnIDInto(ctx context.Context, idColumn string
 		return b.err
 	}
 	if b.exec == nil {
-		return errors.New("corm: missing Executor for insert")
+		return errMissingInsertExec
 	}
 	idColumn = strings.TrimSpace(idColumn)
 	if idColumn == "" {
 		idColumn = "id"
 	}
 	if b.fromSelect != nil || len(b.rows) != 1 {
-		return errors.New("corm: insert returning id requires single-row insert")
+		return errInsertReturnSingle
 	}
 
 	if b.d.SupportsReturning() {
 		_, ok := quoteColumnStrict(b.d, idColumn)
 		if !ok {
-			return errors.New("corm: invalid column identifier")
+			return errInvalidColumn
 		}
 		prevReturning := b.returning
 		b.returning = []string{idColumn}
@@ -79,9 +78,15 @@ func assignInt64(dest any, v int64) error {
 		*p = v
 		return nil
 	case *uint:
+		if v < 0 {
+			return errNegUint
+		}
 		*p = uint(v)
 		return nil
 	case *uint64:
+		if v < 0 {
+			return errNegUint64
+		}
 		*p = uint64(v)
 		return nil
 	case *sql.NullInt64:
@@ -92,23 +97,23 @@ func assignInt64(dest any, v int64) error {
 
 	rv := reflect.ValueOf(dest)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return errors.New("corm: dest must be non-nil pointer")
+		return errNilPtr
 	}
 	ev := rv.Elem()
 	switch ev.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if ev.OverflowInt(v) {
-			return errors.New("corm: dest int overflow")
+			return errIntOverflow
 		}
 		ev.SetInt(v)
 		return nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		if v < 0 || ev.OverflowUint(uint64(v)) {
-			return errors.New("corm: dest uint overflow")
+			return errUintOverflow
 		}
 		ev.SetUint(uint64(v))
 		return nil
 	default:
-		return errors.New("corm: dest must be integer pointer")
+		return errIntPtr
 	}
 }

@@ -2,6 +2,7 @@ package builder_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/nikola-chen/corm/builder"
@@ -276,5 +277,375 @@ func TestCountExprWithGroupBy(t *testing.T) {
 	}
 	if !reflect.DeepEqual(args, []any{0}) {
 		t.Errorf("args mismatch: got %v", args)
+	}
+}
+
+func TestUpdateWhereExt(t *testing.T) {
+	bd := builder.MySQL()
+
+	q := bd.Update("users").
+		Set("status", 1).
+		WhereLike("name", "A%").
+		WhereNotIn("role", "admin", "super").
+		WhereBetween("age", 18, 60)
+
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	if !strings.Contains(sqlStr, "`name` LIKE ?") {
+		t.Errorf("missing LIKE clause: %s", sqlStr)
+	}
+	if !strings.Contains(sqlStr, "`role` NOT IN (?, ?)") {
+		t.Errorf("missing NOT IN clause: %s", sqlStr)
+	}
+	if !strings.Contains(sqlStr, "`age` BETWEEN ? AND ?") {
+		t.Errorf("missing BETWEEN clause: %s", sqlStr)
+	}
+	if len(args) != 6 {
+		t.Errorf("expected 6 args, got %d: %v", len(args), args)
+	}
+}
+
+func TestUpdateWhereSubquery(t *testing.T) {
+	bd := builder.MySQL()
+	sub := bd.Select("id").From("banned_users")
+
+	q := bd.Update("users").
+		Set("status", 0).
+		WhereSubquery("id", "IN", sub)
+
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	if !strings.Contains(sqlStr, "WHERE (`id` IN (SELECT") {
+		t.Errorf("missing subquery: %s", sqlStr)
+	}
+}
+
+func TestUpdateIncrementDecrement(t *testing.T) {
+	bd := builder.MySQL()
+
+	q := bd.Update("users").
+		Increment("views", 1).
+		Decrement("credits", 10).
+		WhereEq("id", 1)
+
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+
+	if !strings.Contains(sqlStr, "`views` = `views` + ?") {
+		t.Errorf("missing increment: %s", sqlStr)
+	}
+	if !strings.Contains(sqlStr, "`credits` = `credits` - ?") {
+		t.Errorf("missing decrement: %s", sqlStr)
+	}
+	if !reflect.DeepEqual(args, []any{1, 10, 1}) {
+		t.Errorf("args mismatch: got %v", args)
+	}
+}
+
+func TestUpdateIncrementOnBatch(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Update("users").
+		Increment("views", 1).
+		Models([]User{{ID: 1}, {ID: 2}})
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for Increment on batch update")
+	}
+}
+
+func TestUpdateDecrementOnBatch(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Update("users").
+		Decrement("views", 1).
+		Models([]User{{ID: 1}, {ID: 2}})
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for Decrement on batch update")
+	}
+}
+
+func TestUpdateSetOnBatch(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Update("users").
+		Set("name", "test").
+		Models([]User{{ID: 1}, {ID: 2}})
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for Set on batch update")
+	}
+}
+
+func TestUpdateSetExprOnBatch(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Update("users").
+		SetExpr("name", clause.Raw("NOW()")).
+		Models([]User{{ID: 1}, {ID: 2}})
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for SetExpr on batch update")
+	}
+}
+
+func TestUpdateMapOnBatch(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Update("users").
+		Map(map[string]any{"name": "test"}).
+		Models([]User{{ID: 1}, {ID: 2}})
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for Map on batch update")
+	}
+}
+
+func TestUpdateLimitMySQL(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Update("users").
+		Set("status", 0).
+		Where("id > ?", 0).
+		Limit(100)
+
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "LIMIT ?") {
+		t.Errorf("missing LIMIT: %s", sqlStr)
+	}
+	if !reflect.DeepEqual(args, []any{0, 0, 100}) {
+		t.Errorf("args mismatch: got %v", args)
+	}
+}
+
+func TestUpdateLimitPostgres(t *testing.T) {
+	bd := builder.Postgres()
+	q := bd.Update("users").
+		Set("status", 0).
+		Where("id > ?", 0).
+		Limit(100)
+
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for LIMIT on Postgres update")
+	}
+}
+
+func TestDeleteLimitMySQL(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Delete("users").
+		Where("id > ?", 0).
+		Limit(100)
+
+	sqlStr, args, err := q.SQL()
+	if err != nil {
+		t.Fatalf("SQL() error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "LIMIT ?") {
+		t.Errorf("missing LIMIT: %s", sqlStr)
+	}
+	if !reflect.DeepEqual(args, []any{0, 100}) {
+		t.Errorf("args mismatch: got %v", args)
+	}
+}
+
+func TestDeleteLimitPostgres(t *testing.T) {
+	bd := builder.Postgres()
+	q := bd.Delete("users").
+		Where("id > ?", 0).
+		Limit(100)
+
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for LIMIT on Postgres delete")
+	}
+}
+
+func TestDeleteInvalidLimit(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Delete("users").Where("id > ?", 0).Limit(-1)
+	_, _, err := q.SQL()
+	if err != nil {
+		t.Errorf("expected no error for negative LIMIT (treated as no limit), got: %v", err)
+	}
+}
+
+func TestWhereInvalidColumn(t *testing.T) {
+	bd := builder.MySQL()
+
+	q := bd.Select("id").From("users").WhereEq("invalid column", 1)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for invalid column in WhereEq")
+	}
+}
+
+func TestWhereSubqueryNil(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereSubquery("id", "IN", nil)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for nil subquery")
+	}
+}
+
+func TestWhereSubqueryInvalidOp(t *testing.T) {
+	bd := builder.MySQL()
+	sub := bd.Select("id").From("banned")
+	q := bd.Select("id").From("users").WhereSubquery("id", "INVALID", sub)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for invalid operator")
+	}
+}
+
+func TestWhereExistsNil(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereExists(nil)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for nil subquery in WhereExists")
+	}
+}
+
+func TestWhereNotExistsNil(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereNotExists(nil)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for nil subquery in WhereNotExists")
+	}
+}
+
+func TestWhereInInvalidColumn(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereIn("invalid col", 1, 2)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for invalid column in WhereIn")
+	}
+}
+
+func TestWhereLikeInvalidColumn(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereLike("invalid col", "test%")
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for invalid column in WhereLike")
+	}
+}
+
+func TestWhereNotInInvalidColumn(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereNotIn("invalid col", 1, 2)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for invalid column in WhereNotIn")
+	}
+}
+
+func TestWhereBetweenInvalidColumn(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereBetween("invalid col", 1, 10)
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for invalid column in WhereBetween")
+	}
+}
+
+func TestWhereNotLikeInvalidColumn(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereNotLike("invalid col", "test%")
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for invalid column in WhereNotLike")
+	}
+}
+
+func TestWhereMapInvalidColumn(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereMap(map[string]any{"invalid col": 1})
+	_, _, err := q.SQL()
+	if err == nil {
+		t.Error("expected error for invalid column in WhereMap")
+	}
+}
+
+func TestSelectWhereEmpty(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").Where("")
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(sqlStr, "WHERE") {
+		t.Errorf("empty where should be omitted: %s", sqlStr)
+	}
+}
+
+func TestSelectWhereExprEmpty(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Select("id").From("users").WhereExpr(clause.Raw(""))
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(sqlStr, "WHERE") {
+		t.Errorf("empty where expr should be omitted: %s", sqlStr)
+	}
+}
+
+func TestSelectForShare(t *testing.T) {
+	bd := builder.Postgres()
+	q := bd.Select("id").From("users").WhereEq("id", 1).ForShare()
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "FOR SHARE") {
+		t.Errorf("missing FOR SHARE: %s", sqlStr)
+	}
+}
+
+func TestSelectIntersect(t *testing.T) {
+	bd := builder.Postgres()
+	q1 := bd.Select("id").From("users_2023")
+	q2 := bd.Select("id").From("users_2024")
+	q := q1.Intersect(q2)
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "INTERSECT") {
+		t.Errorf("missing INTERSECT: %s", sqlStr)
+	}
+}
+
+func TestSelectExcept(t *testing.T) {
+	bd := builder.Postgres()
+	q1 := bd.Select("id").From("users")
+	q2 := bd.Select("id").From("banned")
+	q := q1.Except(q2)
+	sqlStr, _, err := q.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "EXCEPT") {
+		t.Errorf("missing EXCEPT: %s", sqlStr)
+	}
+}
+
+func TestUpdateInvalidLimit(t *testing.T) {
+	bd := builder.MySQL()
+	q := bd.Update("users").Set("status", 0).Where("id > ?", 0).Limit(-1)
+	_, _, err := q.SQL()
+	if err != nil {
+		t.Errorf("expected no error for negative LIMIT (treated as no limit), got: %v", err)
 	}
 }

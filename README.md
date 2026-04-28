@@ -699,16 +699,59 @@ err := e.Select("id", "name").
 
 ## Changelog
 
-### v2.1.9 (Seventh Round Deep Audit)
+### v2.1.10 (Ninth, Tenth & Eleventh Round Deep Audits)
+
+**Bug Fixes:**
+- Fixed `assignInt64` safety bug: `uint`/`uint64` types were not checked for negative values before conversion, which could silently produce incorrect results. Added overflow checks for unsigned integer types.
+
+**Code Style & Consistency:**
+- Unified `UpdateBuilder.Limit()` and `DeleteBuilder.Limit()` behavior with `SelectBuilder.Limit()`: values ≤ 0 now mean "no limit" (LIMIT clause omitted) instead of silently accepting negative values.
+- Simplified redundant nil check in `batchUpdateBuilder.Models()` for improved clarity.
+- Replaced all inline `errors.New("corm: ...")` with sentinel errors across `builder` and `engine` packages for consistent, comparable error handling.
+- Added `engine/errors.go` with centralized sentinel errors (`errEngineNotInit`, `errContextCanceled`).
+- Replaced `errors.New("corm: unsupported dialect: " + driverName)` with `fmt.Errorf` for proper string formatting.
+
+**Dead Code Removal:**
+- Removed unused methods from `batchUpdateBuilder`: `Columns()`, `IncludePrimaryKey()`, `IncludeAuto()`, `IncludeReadonly()`, `IncludeZero()` — these were only set via field access from `UpdateBuilder`.
+
+**Architecture Refactoring:**
+- Removed redundant wrapper functions `normalizeInsertColumnKey` and `scan.normalizeColumn`, calling `internal.NormalizeColumn` directly.
+- Extracted shared `buildSetClause()` and `buildConflictPrefix()` helpers from `ConflictBuilder.DoUpdate()`, eliminating duplicate SET-clause building logic between PostgreSQL and MySQL branches (~40 lines deduplicated).
+
+**Security & Robustness:**
+- Added savepoint name validation in transaction management to prevent SQL injection through crafted savepoint names.
+- Enhanced `defaultArgFormatter` to properly redact sensitive types (errors, fmt.Stringer) in SQL logs.
+
+**Testing Enhancements:**
+- Added comprehensive tests for `In()` function, `Like`, `Alias` functions, and `defaultArgFormatter`.
+- Added error-path tests for `SelectBuilder.All/One/Scalar/Count/Exists`, `InsertBuilder.One`, and `Iter` with nil executor.
+- Updated LIMIT tests to match new "≤ 0 = no limit" semantics.
+- Coverage: overall 70.7% (internal 100%, dialect 97.2%, schema 89.0%, engine 86.4%, clause 88.8%, scan 76.4%, builder 64.5%).
+
+**Audit Summary:**
+- `go vet` clean, all tests pass, `go test -race` clean.
+- No dead code or unused imports found.
+- No deprecated API usage detected.
+- All `sync.Pool`, `sync.RWMutex` patterns verified correct.
+- `modernize` static analysis tool clean.
+
+### v2.1.9 (Eighth Round Deep Audit)
 
 **Bug Fixes:**
 - Fixed `batchUpdateBuilder.mapsInternal()` column validation gap: when deriving columns from map keys, columns appearing after the key column in iteration order were not validated by `quoteColumnStrict`. Now all map keys are validated before the key column is removed, closing a potential edge case where unvalidated column identifiers could bypass checks.
+
+**Architecture Refactoring:**
+- Extracted generic SQL tokenizer (`tokenizeSQL`), eliminating ~200 lines of duplicated state machine parsing logic between `countQuestionPlaceholders` and `rewritePlaceholders`, unified into declarative token traversal pattern.
+- Removed redundant wrapper function `normalizeInsertColumnKey`, calling `internal.NormalizeColumn` directly.
+- Optimized special character detection in `quoteIdentWithStar` using `[256]bool` lookup table instead of inline multi-branch conditions, improving identifier validation performance.
+- Simplified `quoteColumnStrict`, removing duplicated special character detection logic that overlapped with `isSimpleIdent`.
 
 **Audit Summary:**
 - `go vet` clean, all tests pass.
 - No dead code or unused imports found.
 - No deprecated API usage detected.
 - All `sync.Pool`, `sync.RWMutex` patterns verified correct.
+- `modernize` static analysis tool clean.
 - Coverage: overall 65.7% (100% internal, 97.2% dialect, 89.0% schema, 83.2% engine, 76.4% scan, 58.5% builder, 77.6% clause).
 
 ### v2.1.8 (Sixth Round Deep Audit)

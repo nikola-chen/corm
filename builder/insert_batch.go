@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 
@@ -47,12 +46,12 @@ func (b *InsertBuilder) Models(models any) *InsertBuilder {
 	}
 	if b.table == "" {
 		if strings.TrimSpace(s.Table) == "" {
-			b.err = errors.New("corm: missing table for insert: model has no table name")
+			b.err = errMissingTable
 			return b
 		}
 		if b.d != nil {
 			if _, ok := quoteIdentStrict(b.d, s.Table); !ok {
-				b.err = errors.New("corm: invalid table identifier from model")
+				b.err = errInvalidTable
 				return b
 			}
 		}
@@ -94,10 +93,10 @@ func (b *InsertBuilder) insertFieldsForSchema(s *schema.Schema) ([]*schema.Field
 	if len(b.columns) > 0 {
 		fields := make([]*schema.Field, len(b.columns))
 		for i, col := range b.columns {
-			key := normalizeInsertColumnKey(col)
+			key := internal.NormalizeColumn(col)
 			f := s.ByColumn[key]
 			if f == nil {
-				return nil, errors.New("corm: unknown column in Model: " + col)
+				return nil, unknownColumnErr(col)
 			}
 			fields[i] = f
 		}
@@ -121,8 +120,4 @@ func (b *InsertBuilder) insertFieldsForSchema(s *schema.Schema) ([]*schema.Field
 	}
 	b.columns = cols
 	return fields, nil
-}
-
-func normalizeInsertColumnKey(c string) string {
-	return internal.NormalizeColumn(c)
 }

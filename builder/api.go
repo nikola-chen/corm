@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/nikola-chen/corm/dialect"
@@ -21,7 +20,7 @@ type API struct {
 // produced from it will return an error from SQL()/Exec()/Query().
 func NewAPI(d dialect.Dialect, exec Executor) *API {
 	if d == nil {
-		return &API{exec: exec, err: errors.New("corm: nil dialect")}
+		return &API{exec: exec, err: errNilDialect}
 	}
 	return &API{d: d, exec: exec}
 }
@@ -38,11 +37,11 @@ func New(d dialect.Dialect) *API {
 func Dialect(driver string) *API {
 	driver = strings.TrimSpace(driver)
 	if driver == "" {
-		return &API{err: errors.New("corm: empty dialect")}
+		return &API{err: errEmptyDialect}
 	}
 	d, ok := dialect.Get(driver)
 	if !ok || d == nil {
-		return &API{err: errors.New("corm: unsupported dialect: " + driver)}
+		return &API{err: unsupportedDialectErr(driver)}
 	}
 	return &API{d: d}
 }
@@ -93,7 +92,7 @@ func (a *API) Dialect() dialect.Dialect {
 // Err returns any error stored in the API, or nil.
 func (a *API) Err() error {
 	if a == nil {
-		return errors.New("corm: nil api")
+		return errNilAPI
 	}
 	return a.err
 }
@@ -101,7 +100,7 @@ func (a *API) Err() error {
 // Select creates a SelectBuilder using the API's dialect and Executor.
 func (a *API) Select(columns ...string) *SelectBuilder {
 	if a == nil {
-		return &SelectBuilder{err: errors.New("corm: nil api")}
+		return &SelectBuilder{err: errNilAPI}
 	}
 	b := newSelectBuilder(a.exec, a.d, columns...)
 	if a.err != nil {
@@ -109,7 +108,7 @@ func (a *API) Select(columns ...string) *SelectBuilder {
 		return b
 	}
 	if a.d == nil {
-		b.err = errors.New("corm: nil dialect")
+		b.err = errNilDialect
 	}
 	return b
 }
@@ -117,7 +116,7 @@ func (a *API) Select(columns ...string) *SelectBuilder {
 // Insert creates an InsertBuilder using the API's dialect and Executor.
 func (a *API) Insert(table string) *InsertBuilder {
 	if a == nil {
-		return &InsertBuilder{err: errors.New("corm: nil api")}
+		return &InsertBuilder{err: errNilAPI}
 	}
 	b := newInsertBuilder(a.exec, a.d, table)
 	if a.err != nil {
@@ -125,7 +124,7 @@ func (a *API) Insert(table string) *InsertBuilder {
 		return b
 	}
 	if a.d == nil {
-		b.err = errors.New("corm: nil dialect")
+		b.err = errNilDialect
 	}
 	return b
 }
@@ -133,7 +132,7 @@ func (a *API) Insert(table string) *InsertBuilder {
 // Update creates an UpdateBuilder using the API's dialect and Executor.
 func (a *API) Update(table string) *UpdateBuilder {
 	if a == nil {
-		return &UpdateBuilder{err: errors.New("corm: nil api")}
+		return &UpdateBuilder{err: errNilAPI}
 	}
 	b := newUpdateBuilder(a.exec, a.d, table)
 	if a.err != nil {
@@ -141,7 +140,7 @@ func (a *API) Update(table string) *UpdateBuilder {
 		return b
 	}
 	if a.d == nil {
-		b.err = errors.New("corm: nil dialect")
+		b.err = errNilDialect
 	}
 	return b
 }
@@ -149,7 +148,7 @@ func (a *API) Update(table string) *UpdateBuilder {
 // Delete creates a DeleteBuilder using the API's dialect and Executor.
 func (a *API) Delete(table string) *DeleteBuilder {
 	if a == nil {
-		return &DeleteBuilder{err: errors.New("corm: nil api")}
+		return &DeleteBuilder{err: errNilAPI}
 	}
 	b := newDeleteBuilder(a.exec, a.d, table)
 	if a.err != nil {
@@ -157,7 +156,7 @@ func (a *API) Delete(table string) *DeleteBuilder {
 		return b
 	}
 	if a.d == nil {
-		b.err = errors.New("corm: nil dialect")
+		b.err = errNilDialect
 	}
 	return b
 }

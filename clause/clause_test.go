@@ -327,6 +327,7 @@ func TestInWithSliceTypes(t *testing.T) {
 		{"[]uint32", []any{[]uint32{1, 2, 3}}, 3},
 		{"[]uint64", []any{[]uint64{1, 2, 3}}, 3},
 		{"[]uint", []any{[]uint{1, 2, 3}}, 3},
+		{"[]any", []any{[]any{"a", "b"}}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -335,5 +336,93 @@ func TestInWithSliceTypes(t *testing.T) {
 				t.Errorf("In(%s).Args length = %v, want %v", tt.name, len(expr.Args), tt.wantLen)
 			}
 		})
+	}
+}
+
+func TestInWithByteSlice(t *testing.T) {
+	expr := clause.In("data", []byte{1, 2, 3})
+	if len(expr.Args) != 1 {
+		t.Errorf("[]byte should be treated as scalar, got %d args", len(expr.Args))
+	}
+}
+
+func TestInWithReflectSlice(t *testing.T) {
+	type customType struct{ Val int }
+	expr := clause.In("col", []customType{{1}, {2}})
+	if len(expr.Args) != 2 {
+		t.Errorf("custom slice via reflect should have 2 args, got %d", len(expr.Args))
+	}
+}
+
+func TestInWithEmptyReflectSlice(t *testing.T) {
+	type customType struct{ Val int }
+	expr := clause.In("col", []customType{})
+	if expr.SQL != "1=0" {
+		t.Errorf("empty custom slice should produce 1=0, got %s", expr.SQL)
+	}
+}
+
+func TestInWithMixedSlices(t *testing.T) {
+	expr := clause.In("col", 1, []int{2, 3}, 4)
+	if len(expr.Args) != 4 {
+		t.Errorf("mixed values and slices should flatten to 4 args, got %d", len(expr.Args))
+	}
+}
+
+func TestInWithEmptyMixedSlices(t *testing.T) {
+	expr := clause.In("col", []int{})
+	if expr.SQL != "1=0" {
+		t.Errorf("empty mixed should produce 1=0, got %s", expr.SQL)
+	}
+}
+
+func TestInNoValues(t *testing.T) {
+	expr := clause.In("col")
+	if expr.SQL != "1=0" {
+		t.Errorf("no values should produce 1=0, got %s", expr.SQL)
+	}
+}
+
+func TestInBuildInSizes(t *testing.T) {
+	expr1 := clause.In("col", 1)
+	if expr1.SQL != "col IN (?)" {
+		t.Errorf("1 value: got %s", expr1.SQL)
+	}
+	expr2 := clause.In("col", 1, 2)
+	if expr2.SQL != "col IN (?, ?)" {
+		t.Errorf("2 values: got %s", expr2.SQL)
+	}
+	expr3 := clause.In("col", 1, 2, 3)
+	if expr3.SQL != "col IN (?, ?, ?)" {
+		t.Errorf("3 values: got %s", expr3.SQL)
+	}
+	expr4 := clause.In("col", 1, 2, 3, 4)
+	if expr4.SQL != "col IN (?, ?, ?, ?)" {
+		t.Errorf("4 values: got %s", expr4.SQL)
+	}
+	expr5 := clause.In("col", 1, 2, 3, 4, 5)
+	if expr5.SQL != "col IN (?, ?, ?, ?, ?)" {
+		t.Errorf("5 values: got %s", expr5.SQL)
+	}
+	expr6 := clause.In("col", 1, 2, 3, 4, 5, 6)
+	if expr6.SQL != "col IN (?, ?, ?, ?, ?, ?)" {
+		t.Errorf("6 values: got %s", expr6.SQL)
+	}
+}
+
+func TestLike(t *testing.T) {
+	expr := clause.Like("name", "%test%")
+	if expr.SQL != "name LIKE ?" {
+		t.Errorf("Like().SQL = %v, want 'name LIKE ?'", expr.SQL)
+	}
+	if len(expr.Args) != 1 || expr.Args[0] != "%test%" {
+		t.Errorf("Like().Args = %v, want ['%%test%%']", expr.Args)
+	}
+}
+
+func TestAlias(t *testing.T) {
+	result := clause.Alias("COUNT(*)", "cnt")
+	if result != "COUNT(*) AS cnt" {
+		t.Errorf("Alias() = %v, want 'COUNT(*) AS cnt'", result)
 	}
 }

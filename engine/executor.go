@@ -40,7 +40,7 @@ func (l *loggingExecutor) log(query string, args []any, dur time.Duration, err e
 	}
 	if !l.cfg.LogCanceled && err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			err = errors.New("corm: context canceled")
+			err = errContextCanceled
 		}
 	}
 	query = truncateSQL(query, l.cfg.MaxLogSQLLen)

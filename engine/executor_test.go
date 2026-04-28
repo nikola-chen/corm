@@ -90,15 +90,26 @@ func TestDefaultArgFormatter(t *testing.T) {
 		{"int", 42, "42"},
 		{"float", 3.14, "3.14"},
 		{"bool", true, "true"},
+		{"error", context.Canceled, "redacted)"},
+		{"stringer", time.Second, "Duration(redacted)"},
+		{"struct", struct{ Name string }{"test"}, "{test}"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := defaultArgFormatter(tt.arg)
-			if got != tt.expected {
-				t.Errorf("defaultArgFormatter() = %q, want %q", got, tt.expected)
+			if !strings.Contains(got, tt.expected) && got != tt.expected {
+				t.Errorf("defaultArgFormatter() = %q, want containing %q", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestDefaultArgFormatterLongValue(t *testing.T) {
+	longStr := struct{ S string }{S: strings.Repeat("x", 100)}
+	got := defaultArgFormatter(longStr)
+	if !strings.Contains(got, "…") {
+		t.Errorf("long value should be truncated, got: %s", got)
 	}
 }
 

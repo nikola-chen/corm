@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"iter"
 
 	"github.com/nikola-chen/corm/clause"
@@ -12,7 +11,7 @@ import (
 
 func (b *SelectBuilder) All(ctx context.Context, dest any) error {
 	if b.exec == nil {
-		return errors.New("corm: missing Executor for select")
+		return errMissingExecutor
 	}
 	rows, err := b.Query(ctx)
 	if err != nil {
@@ -31,7 +30,7 @@ func Iter[T any](ctx context.Context, b *SelectBuilder) iter.Seq2[T, error] {
 	if b.exec == nil {
 		return func(yield func(T, error) bool) {
 			var zero T
-			yield(zero, errors.New("corm: missing Executor for select"))
+			yield(zero, errMissingExecutor)
 		}
 	}
 	rows, err := b.Query(ctx)
@@ -46,7 +45,7 @@ func Iter[T any](ctx context.Context, b *SelectBuilder) iter.Seq2[T, error] {
 
 func (b *SelectBuilder) One(ctx context.Context, dest any) error {
 	if b.exec == nil {
-		return errors.New("corm: missing Executor for select")
+		return errMissingExecutor
 	}
 	rows, err := b.Query(ctx)
 	if err != nil {
@@ -57,7 +56,7 @@ func (b *SelectBuilder) One(ctx context.Context, dest any) error {
 
 func (b *SelectBuilder) Scalar(ctx context.Context, dest any) error {
 	if b.exec == nil {
-		return errors.New("corm: missing Executor for select")
+		return errMissingExecutor
 	}
 	rows, err := b.Query(ctx)
 	if err != nil {
@@ -88,7 +87,7 @@ func (b *SelectBuilder) Count(ctx context.Context) (int64, error) {
 //	count, err := query.CountExpr(ctx, clause.Raw("COUNT(DISTINCT `email`)"))
 func (b *SelectBuilder) CountExpr(ctx context.Context, expr clause.Expr) (int64, error) {
 	if b.exec == nil {
-		return 0, errors.New("corm: missing Executor for select")
+		return 0, errMissingExecutor
 	}
 	if len(b.groupBy) > 0 {
 		wrapped := &SelectBuilder{
@@ -152,13 +151,13 @@ func (b *SelectBuilder) CountExprSQL(expr clause.Expr) (string, []any, error) {
 // Exists executes SELECT EXISTS(subquery) and returns true if rows exist.
 func (b *SelectBuilder) Exists(ctx context.Context) (bool, error) {
 	if b.exec == nil {
-		return false, errors.New("corm: missing Executor for select")
+		return false, errMissingExecutor
 	}
 	if b.err != nil {
 		return false, b.err
 	}
 	if b.d == nil {
-		return false, errors.New("corm: nil dialect")
+		return false, errNilDialect
 	}
 
 	// Build EXISTS(SELECT 1 FROM ... WHERE ...)

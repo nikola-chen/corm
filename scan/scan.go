@@ -2,7 +2,6 @@ package scan
 
 import (
 	"database/sql"
-	"errors"
 	"reflect"
 	"strings"
 	"sync"
@@ -80,7 +79,7 @@ func structPlan(s *schema.Schema, cols []string) [][]int {
 
 	plan := make([][]int, len(cols))
 	for i, c := range cols {
-		f := s.ByColumn[strings.ToLower(normalizeColumn(c))]
+		f := s.ByColumn[strings.ToLower(internal.NormalizeColumn(c))]
 		if f == nil {
 			continue
 		}
@@ -91,7 +90,7 @@ func structPlan(s *schema.Schema, cols []string) [][]int {
 
 	spCache.mu.Lock()
 	if spCache.count >= maxStructPlanCacheEntries {
-		spCache.items = make(map[structPlanKey][][]int, 256)
+		clear(spCache.items)
 		spCache.count = 0
 	}
 	if _, ok := spCache.items[key]; !ok {
@@ -119,11 +118,11 @@ func scanAll(rows *sql.Rows, dest any, strictStructColumns bool, capHint int) er
 
 	rv := reflect.ValueOf(dest)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return errors.New("corm: dest must be non-nil pointer")
+		return errNilPtr
 	}
 	sliceV := rv.Elem()
 	if sliceV.Kind() != reflect.Slice {
-		return errors.New("corm: dest must be pointer to slice")
+		return errSlicePtr
 	}
 
 	// Optimization: pre-allocate slice if capHint provided and slice is nil/empty
@@ -150,7 +149,7 @@ func scanAll(rows *sql.Rows, dest any, strictStructColumns bool, capHint int) er
 	switch baseElemT.Kind() {
 	case reflect.Map:
 		if elemT.Kind() != reflect.Map || elemT.Key().Kind() != reflect.String {
-			return errors.New("corm: map element must have string keys")
+			return errMapStringKeys
 		}
 		valT := elemT.Elem()
 		n := len(cols)
@@ -253,7 +252,7 @@ func scanAll(rows *sql.Rows, dest any, strictStructColumns bool, capHint int) er
 		}
 		return rows.Err()
 	default:
-		return errors.New("corm: slice element must be struct, *struct, or map")
+		return errSliceElemKind
 	}
 }
 
@@ -281,7 +280,7 @@ func scanOne(rows *sql.Rows, dest any, strictStructColumns bool) error {
 
 	rv := reflect.ValueOf(dest)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return errors.New("corm: dest must be non-nil pointer")
+		return errNilPtr
 	}
 
 	base := rv.Elem()
@@ -295,7 +294,7 @@ func scanOne(rows *sql.Rows, dest any, strictStructColumns bool) error {
 	switch base.Kind() {
 	case reflect.Map:
 		if base.Type().Key().Kind() != reflect.String {
-			return errors.New("corm: dest map key must be string")
+			return errMapStringKey
 		}
 		valT := base.Type().Elem()
 		n := len(cols)
@@ -371,27 +370,21 @@ func scanOne(rows *sql.Rows, dest any, strictStructColumns bool) error {
 		}
 		return rows.Scan(holders...)
 	default:
-		return errors.New("corm: dest must be struct/*struct or map/*map")
+		return errStructMap
 	}
 }
 
 func validateStructColumns(cols []string) error {
 	seen := make(map[string]struct{}, len(cols))
 	for _, c := range cols {
-		n := strings.ToLower(normalizeColumn(c))
+		n := strings.ToLower(internal.NormalizeColumn(c))
 		if n == "" {
 			continue
 		}
 		if _, ok := seen[n]; ok {
-			return errors.New("corm: duplicate column name after normalization: " + n + ", use AS to alias")
+			return duplicateColumnErr(n)
 		}
 		seen[n] = struct{}{}
 	}
 	return nil
-}
-
-// normalizeColumn normalizes a column name for case-insensitive comparison.
-// It delegates to internal.NormalizeColumn for consistency.
-func normalizeColumn(c string) string {
-	return internal.NormalizeColumn(c)
 }

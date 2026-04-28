@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"maps"
 	"reflect"
 	"slices"
@@ -69,31 +68,6 @@ func (b *batchUpdateBuilder) Key(column string) *batchUpdateBuilder {
 	return b
 }
 
-func (b *batchUpdateBuilder) Columns(cols ...string) *batchUpdateBuilder {
-	b.columns = append(b.columns, cols...)
-	return b
-}
-
-func (b *batchUpdateBuilder) IncludePrimaryKey() *batchUpdateBuilder {
-	b.includePrimaryKey = true
-	return b
-}
-
-func (b *batchUpdateBuilder) IncludeAuto() *batchUpdateBuilder {
-	b.includeAuto = true
-	return b
-}
-
-func (b *batchUpdateBuilder) IncludeReadonly() *batchUpdateBuilder {
-	b.includeReadonly = true
-	return b
-}
-
-func (b *batchUpdateBuilder) IncludeZero() *batchUpdateBuilder {
-	b.includeZero = true
-	return b
-}
-
 func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 	if b.err != nil {
 		return b
@@ -121,14 +95,14 @@ func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 		baseT = elemT.Elem()
 	}
 	if baseT.Kind() != reflect.Struct {
-		b.err = errors.New("corm: batch update models must be a slice of structs, got " + baseT.Kind().String())
+		b.err = batchModelKindErr(baseT.Kind().String())
 		return b
 	}
 
 	if b.modelType == nil {
 		b.modelType = baseT
 	} else if b.modelType != baseT {
-		b.err = errors.New("corm: batch update models must be of the same type")
+		b.err = errBatchModelType
 		return b
 	}
 
@@ -140,12 +114,12 @@ func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 
 	if b.table == "" {
 		if strings.TrimSpace(s.Table) == "" {
-			b.err = errors.New("corm: missing table for update: model has no table name")
+			b.err = errMissingTable
 			return b
 		}
 		if b.d != nil {
 			if _, ok := quoteIdentStrict(b.d, s.Table); !ok {
-				b.err = errors.New("corm: invalid table identifier from model")
+				b.err = errInvalidTable
 				return b
 			}
 		}
@@ -165,11 +139,11 @@ func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 		// so we just proceed to call it.
 	}
 
-	if b.keyField == nil || b.keyField != nil && internal.NormalizeColumn(b.keyField.Column) != internal.NormalizeColumn(b.keyColumn) {
+	if b.keyField == nil || internal.NormalizeColumn(b.keyField.Column) != internal.NormalizeColumn(b.keyColumn) {
 		b.keyField = s.ByColumn[internal.NormalizeColumn(b.keyColumn)]
 	}
 	if b.keyField == nil {
-		b.err = errors.New("corm: invalid batch update key column")
+		b.err = errBatchKeyColumn
 		return b
 	}
 
@@ -230,21 +204,21 @@ func (b *batchUpdateBuilder) mapsInternal(rows []map[string]any, lowerKeys bool)
 		return b
 	}
 	if strings.TrimSpace(b.table) == "" {
-		b.err = errors.New("corm: missing table for batch update")
+		b.err = errMissingTable
 		return b
 	}
 	if b.keyColumn == "" {
 		b.keyColumn = "id"
 	}
 	if _, ok := quoteColumnStrict(b.d, b.keyColumn); !ok {
-		b.err = errors.New("corm: invalid batch update key column")
+		b.err = errBatchKeyColumn
 		return b
 	}
 	if len(b.columns) == 0 {
 		cols := slices.Collect(maps.Keys(rows[0]))
 		for _, k := range cols {
 			if _, ok := quoteColumnStrict(b.d, k); !ok {
-				b.err = errors.New("corm: invalid column identifier")
+				b.err = errInvalidColumn
 				return b
 			}
 		}
@@ -259,11 +233,11 @@ func (b *batchUpdateBuilder) mapsInternal(rows []map[string]any, lowerKeys bool)
 	} else {
 		for _, c := range b.columns {
 			if strings.EqualFold(c, b.keyColumn) {
-				b.err = errors.New("corm: batch update cannot include key column")
+				b.err = errBatchKeyIncluded
 				return b
 			}
 			if _, ok := quoteColumnStrict(b.d, c); !ok {
-				b.err = errors.New("corm: invalid column identifier")
+				b.err = errInvalidColumn
 				return b
 			}
 		}
@@ -276,7 +250,7 @@ func (b *batchUpdateBuilder) mapsInternal(rows []map[string]any, lowerKeys bool)
 	for i := range rows {
 		m := rows[i]
 		if m == nil {
-			b.err = errors.New("corm: nil map in batch update")
+			b.err = errBatchNilMap
 			return b
 		}
 
@@ -288,7 +262,7 @@ func (b *batchUpdateBuilder) mapsInternal(rows []map[string]any, lowerKeys bool)
 			keyV, ok = m[b.keyColumn]
 		}
 		if !ok {
-			b.err = errors.New("corm: missing key column in map: " + b.keyColumn)
+			b.err = batchMissingKeyInMapErr(b.keyColumn)
 			return b
 		}
 		b.rowsKeys = append(b.rowsKeys, keyV)
@@ -316,7 +290,7 @@ func (b *batchUpdateBuilder) SQL() (string, []any, error) {
 		return "", nil, b.err
 	}
 	if b.d == nil {
-		return "", nil, errors.New("corm: nil dialect")
+		return "", nil, errNilDialect
 	}
 	buf := getBuffer()
 	defer putBuffer(buf)
@@ -329,21 +303,21 @@ func (b *batchUpdateBuilder) SQL() (string, []any, error) {
 
 func (b *batchUpdateBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 	if strings.TrimSpace(b.table) == "" {
-		return errors.New("corm: missing table for batch update")
+		return errMissingTable
 	}
 	if len(b.rowsKeys) == 0 || len(b.rowsValues) == 0 {
-		return errors.New("corm: missing batch rows for update")
+		return errBatchMissingRows
 	}
 	if len(b.rowsKeys) != len(b.rowsValues) {
-		return errors.New("corm: batch update rows mismatch")
+		return errBatchRowsMismatch
 	}
 	if len(b.columns) == 0 && len(b.fields) == 0 {
-		return errors.New("corm: missing columns for batch update")
+		return errBatchMissingCols
 	}
 
 	keyQuoted, ok := quoteColumnStrict(b.d, b.keyColumn)
 	if !ok {
-		return errors.New("corm: invalid column identifier")
+		return errInvalidColumn
 	}
 
 	cols := b.columns
@@ -360,7 +334,7 @@ func (b *batchUpdateBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) err
 	for i, c := range cols {
 		q, ok := quoteColumnStrict(b.d, c)
 		if !ok {
-			return errors.New("corm: invalid column identifier")
+			return errInvalidColumn
 		}
 		qCols[i] = q
 	}
@@ -368,7 +342,7 @@ func (b *batchUpdateBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) err
 	buf.WriteString("UPDATE ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)
 	if !ok {
-		return errors.New("corm: invalid table identifier")
+		return errInvalidTable
 	}
 	buf.WriteString(qTable)
 	buf.WriteString(" SET ")
@@ -416,7 +390,7 @@ func (b *batchUpdateBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) err
 
 func (b *batchUpdateBuilder) Exec(ctx context.Context) (sql.Result, error) {
 	if b.exec == nil {
-		return nil, errors.New("corm: missing Executor for batch update")
+		return nil, errMissingExecutor
 	}
 	sqlStr, args, err := b.SQL()
 	if err != nil {
@@ -432,20 +406,20 @@ func (b *batchUpdateBuilder) batchUpdateFieldsForSchema(s *schema.Schema) ([]*sc
 		keyKey := internal.NormalizeColumn(b.keyColumn)
 		for _, col := range b.columns {
 			if internal.NormalizeColumn(col) == keyKey {
-				return nil, errors.New("corm: batch update cannot include key column")
+				return nil, errBatchKeyIncluded
 			}
 			f := s.ByColumn[internal.NormalizeColumn(col)]
 			if f == nil {
-				return nil, errors.New("corm: unknown column in batch update: " + col)
+				return nil, batchUnknownColumnErr(col)
 			}
 			if f.Readonly && !b.includeReadonly {
-				return nil, errors.New("corm: readonly column in batch update: " + col)
+				return nil, batchReadonlyColumnErr(col)
 			}
 			if f.Auto && !b.includeAuto {
-				return nil, errors.New("corm: auto column in batch update: " + col)
+				return nil, batchAutoColumnErr(col)
 			}
 			if f.PrimaryKey && !b.includePrimaryKey {
-				return nil, errors.New("corm: primary key column in batch update: " + col)
+				return nil, batchPrimaryKeyColumnErr(col)
 			}
 			fields = append(fields, f)
 			cols = append(cols, f.Column)

@@ -2,7 +2,6 @@ package builder
 
 import (
 	"context"
-	"errors"
 
 	"github.com/nikola-chen/corm/scan"
 )
@@ -12,13 +11,13 @@ func (b *InsertBuilder) One(ctx context.Context, dest any) error {
 		return b.err
 	}
 	if b.exec == nil {
-		return errors.New("corm: missing Executor for insert")
+		return errMissingInsertExec
 	}
 	if len(b.returning) == 0 {
-		return errors.New("corm: insert.One requires Returning(...)")
+		return errInsertOneNoReturning
 	}
 	if !b.d.SupportsReturning() {
-		return errors.New("corm: dialect does not support returning")
+		return errInsertOneDialect
 	}
 	sqlStr, args, err := b.SQL()
 	if err != nil {

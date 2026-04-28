@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -49,7 +48,7 @@ func (wb *whereBuilder) WhereEq(column string, value any) {
 	}
 	col, ok := quoteIdentStrict(wb.d, column)
 	if !ok {
-		wb.err = errors.New("corm: invalid column identifier")
+		wb.err = errInvalidColumn
 		return
 	}
 	if len(wb.items) == 0 {
@@ -64,7 +63,7 @@ func (wb *whereBuilder) WhereIn(column string, args ...any) {
 	}
 	col, ok := quoteIdentStrict(wb.d, column)
 	if !ok {
-		wb.err = errors.New("corm: invalid column identifier")
+		wb.err = errInvalidColumn
 		return
 	}
 	wb.WhereExpr(clause.In(col, args...))
@@ -76,7 +75,7 @@ func (wb *whereBuilder) WhereLike(column string, value any) {
 	}
 	col, ok := quoteIdentStrict(wb.d, column)
 	if !ok {
-		wb.err = errors.New("corm: invalid column identifier")
+		wb.err = errInvalidColumn
 		return
 	}
 	if len(wb.items) == 0 {
@@ -94,7 +93,7 @@ func (wb *whereBuilder) WhereMap(conditions map[string]any) {
 
 	for _, k := range keys {
 		if _, ok := quoteColumnStrict(wb.d, k); !ok {
-			wb.err = errors.New("corm: invalid column identifier")
+			wb.err = errInvalidColumn
 			return
 		}
 		wb.WhereEq(k, conditions[k])
@@ -106,16 +105,16 @@ func (wb *whereBuilder) WhereSubquery(column, op string, sub *SelectBuilder) {
 		return
 	}
 	if sub == nil {
-		wb.err = errors.New("corm: nil subquery")
+		wb.err = errNilSubquery
 		return
 	}
 	if _, ok := quoteIdentStrict(wb.d, column); !ok {
-		wb.err = errors.New("corm: invalid column identifier")
+		wb.err = errInvalidColumn
 		return
 	}
 	op, ok := normalizeSubqueryOp(op)
 	if !ok {
-		wb.err = errors.New("corm: invalid operator")
+		wb.err = errInvalidOperator
 		return
 	}
 	if len(wb.items) == 0 {
@@ -141,52 +140,48 @@ func (wb *whereBuilder) WhereExpr(e clause.Expr) {
 	wb.items = append(wb.items, whereItem{kind: whereExpr, expr: e})
 }
 
-// WhereNotIn adds a WHERE NOT IN condition.
 func (wb *whereBuilder) WhereNotIn(column string, args ...any) {
 	if wb.err != nil {
 		return
 	}
 	col, ok := quoteIdentStrict(wb.d, column)
 	if !ok {
-		wb.err = errors.New("corm: invalid column identifier")
+		wb.err = errInvalidColumn
 		return
 	}
 	wb.items = append(wb.items, whereItem{kind: whereExpr, expr: clause.NotIn(col, args...)})
 }
 
-// WhereBetween adds a WHERE BETWEEN condition.
 func (wb *whereBuilder) WhereBetween(column string, lo, hi any) {
 	if wb.err != nil {
 		return
 	}
 	col, ok := quoteIdentStrict(wb.d, column)
 	if !ok {
-		wb.err = errors.New("corm: invalid column identifier")
+		wb.err = errInvalidColumn
 		return
 	}
 	wb.items = append(wb.items, whereItem{kind: whereExpr, expr: clause.Between(col, lo, hi)})
 }
 
-// WhereNotLike adds a WHERE NOT LIKE condition.
 func (wb *whereBuilder) WhereNotLike(column string, value any) {
 	if wb.err != nil {
 		return
 	}
 	col, ok := quoteIdentStrict(wb.d, column)
 	if !ok {
-		wb.err = errors.New("corm: invalid column identifier")
+		wb.err = errInvalidColumn
 		return
 	}
 	wb.items = append(wb.items, whereItem{kind: whereExpr, expr: clause.NotLike(col, value)})
 }
 
-// WhereExists adds a WHERE EXISTS condition.
 func (wb *whereBuilder) WhereExists(sub *SelectBuilder) {
 	if wb.err != nil {
 		return
 	}
 	if sub == nil {
-		wb.err = errors.New("corm: nil subquery for EXISTS")
+		wb.err = errNilSubquery
 		return
 	}
 	wb.items = append(wb.items, whereItem{
@@ -196,13 +191,12 @@ func (wb *whereBuilder) WhereExists(sub *SelectBuilder) {
 	})
 }
 
-// WhereNotExists adds a WHERE NOT EXISTS condition.
 func (wb *whereBuilder) WhereNotExists(sub *SelectBuilder) {
 	if wb.err != nil {
 		return
 	}
 	if sub == nil {
-		wb.err = errors.New("corm: nil subquery for NOT EXISTS")
+		wb.err = errNilSubquery
 		return
 	}
 	wb.items = append(wb.items, whereItem{
@@ -217,59 +211,12 @@ func (wb *whereBuilder) appendWhere(buf *strings.Builder, ab *argBuilder) error 
 		return nil
 	}
 	buf.WriteString(" WHERE ")
-	wrote := 0
-	for _, w := range wb.items {
-		switch w.kind {
-		case whereExpr:
-			if strings.TrimSpace(w.expr.SQL) == "" {
-				continue
-			}
-			if wrote > 0 {
-				buf.WriteString(" AND ")
-			}
-			buf.WriteByte('(')
-			if err := ab.appendExpr(w.expr); err != nil {
-				return err
-			}
-			buf.WriteByte(')')
-			wrote++
-		case whereSubquery:
-			if w.sub == nil {
-				return errors.New("corm: nil subquery")
-			}
-			if wrote > 0 {
-				buf.WriteString(" AND ")
-			}
-			buf.WriteByte('(')
-
-			if w.op == "EXISTS" || w.op == "NOT EXISTS" {
-				buf.WriteString(w.op)
-				buf.WriteString(" (")
-				if err := w.sub.appendSQL(buf, ab); err != nil {
-					return err
-				}
-				buf.WriteString("))")
-			} else {
-				col, ok := quoteIdentStrict(wb.d, w.column)
-				if !ok {
-					return errors.New("corm: invalid column identifier")
-				}
-				buf.WriteString(col)
-				buf.WriteByte(' ')
-				buf.WriteString(w.op)
-				buf.WriteString(" (")
-				if err := w.sub.appendSQL(buf, ab); err != nil {
-					return err
-				}
-				buf.WriteString("))")
-			}
-			wrote++
-		default:
-			return errors.New("corm: invalid where kind")
-		}
+	wrote, err := wb.appendItems(buf, ab)
+	if err != nil {
+		return err
 	}
 	if wrote == 0 {
-		return errors.New("corm: all WHERE expressions are empty")
+		return errEmptyWhere
 	}
 	return nil
 }
@@ -278,6 +225,18 @@ func (wb *whereBuilder) appendAndWhere(buf *strings.Builder, ab *argBuilder) err
 	if len(wb.items) == 0 {
 		return nil
 	}
+	buf.WriteString(" AND ")
+	wrote, err := wb.appendItems(buf, ab)
+	if err != nil {
+		return err
+	}
+	if wrote == 0 {
+		return nil
+	}
+	return nil
+}
+
+func (wb *whereBuilder) appendItems(buf *strings.Builder, ab *argBuilder) (int, error) {
 	wrote := 0
 	for _, w := range wb.items {
 		switch w.kind {
@@ -285,45 +244,56 @@ func (wb *whereBuilder) appendAndWhere(buf *strings.Builder, ab *argBuilder) err
 			if strings.TrimSpace(w.expr.SQL) == "" {
 				continue
 			}
-			buf.WriteString(" AND (")
+			if wrote > 0 {
+				buf.WriteString(" AND ")
+			}
+			buf.WriteByte('(')
 			if err := ab.appendExpr(w.expr); err != nil {
-				return err
+				return 0, err
 			}
 			buf.WriteByte(')')
 			wrote++
 		case whereSubquery:
 			if w.sub == nil {
-				return errors.New("corm: nil subquery")
+				return 0, errNilSubquery
 			}
-			buf.WriteString(" AND (")
-			if w.op == "EXISTS" || w.op == "NOT EXISTS" {
-				buf.WriteString(w.op)
-				buf.WriteString(" (")
-				if err := w.sub.appendSQL(buf, ab); err != nil {
-					return err
-				}
-				buf.WriteString("))")
-			} else {
-				col, ok := quoteIdentStrict(wb.d, w.column)
-				if !ok {
-					return errors.New("corm: invalid column identifier")
-				}
-				buf.WriteString(col)
-				buf.WriteByte(' ')
-				buf.WriteString(w.op)
-				buf.WriteString(" (")
-				if err := w.sub.appendSQL(buf, ab); err != nil {
-					return err
-				}
-				buf.WriteString("))")
+			if wrote > 0 {
+				buf.WriteString(" AND ")
 			}
+			buf.WriteByte('(')
+			if err := wb.appendSubqueryItem(buf, ab, w); err != nil {
+				return 0, err
+			}
+			buf.WriteByte(')')
 			wrote++
 		default:
-			return errors.New("corm: invalid where kind")
+			return 0, errInvalidWhereKind
 		}
 	}
-	if wrote == 0 {
+	return wrote, nil
+}
+
+func (wb *whereBuilder) appendSubqueryItem(buf *strings.Builder, ab *argBuilder, w whereItem) error {
+	if w.op == "EXISTS" || w.op == "NOT EXISTS" {
+		buf.WriteString(w.op)
+		buf.WriteString(" (")
+		if err := w.sub.appendSQL(buf, ab); err != nil {
+			return err
+		}
+		buf.WriteByte(')')
 		return nil
 	}
+	col, ok := quoteIdentStrict(wb.d, w.column)
+	if !ok {
+		return errInvalidColumn
+	}
+	buf.WriteString(col)
+	buf.WriteByte(' ')
+	buf.WriteString(w.op)
+	buf.WriteString(" (")
+	if err := w.sub.appendSQL(buf, ab); err != nil {
+		return err
+	}
+	buf.WriteByte(')')
 	return nil
 }

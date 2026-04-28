@@ -91,3 +91,119 @@ func TestUpdateModel(t *testing.T) {
 		t.Errorf("expected 4 args, got %d", len(args))
 	}
 }
+
+type NoTable struct {
+	Name string `db:"name"`
+}
+
+func TestInsertModelNoTable(t *testing.T) {
+	qb := builder.MySQL()
+	b := qb.Insert("").Model(NoTable{Name: "test"})
+	sqlStr, _, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "INSERT INTO `no_table`") {
+		t.Errorf("expected default table name, got: %s", sqlStr)
+	}
+}
+
+func TestInsertModelWithColumns(t *testing.T) {
+	qb := builder.MySQL()
+	b := qb.Insert("users").Columns("name", "age").Model(User{Name: "Alice", Age: 30})
+	sqlStr, args, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "INSERT INTO `users` (`name`, `age`)") {
+		t.Errorf("unexpected SQL: %s", sqlStr)
+	}
+	if len(args) != 2 {
+		t.Errorf("expected 2 args, got %d", len(args))
+	}
+}
+
+func TestInsertModelWithUnknownColumn(t *testing.T) {
+	qb := builder.MySQL()
+	b := qb.Insert("users").Columns("name", "nonexistent").Model(User{Name: "Alice", Age: 30})
+	_, _, err := b.SQL()
+	if err == nil {
+		t.Fatal("expected error for unknown column")
+	}
+}
+
+func TestInsertModelPointer(t *testing.T) {
+	qb := builder.MySQL()
+	user := &User{Name: "Alice", Age: 30}
+	b := qb.Insert("").Model(user)
+	sqlStr, _, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "INSERT INTO `users`") {
+		t.Errorf("unexpected SQL: %s", sqlStr)
+	}
+}
+
+func TestInsertModelInvalidTable(t *testing.T) {
+	qb := builder.MySQL()
+	b := qb.Insert("invalid table name").Model(User{Name: "test"})
+	_, _, err := b.SQL()
+	if err == nil {
+		t.Fatal("expected error for invalid table name")
+	}
+}
+
+func TestUpdateModelPointer(t *testing.T) {
+	qb := builder.Postgres()
+	user := &User{Name: "Bob", Age: 25}
+	b := qb.Update("").Model(user).Where("id = ?", 1)
+	sqlStr, _, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, `UPDATE "users" SET`) {
+		t.Errorf("unexpected SQL: %s", sqlStr)
+	}
+}
+
+func TestUpdateModelNoTable(t *testing.T) {
+	qb := builder.MySQL()
+	b := qb.Update("").Model(NoTable{Name: "test"}).Where("id = ?", 1)
+	sqlStr, _, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "UPDATE `no_table`") {
+		t.Errorf("expected default table name, got: %s", sqlStr)
+	}
+}
+
+func TestInsertModelOmitEmpty(t *testing.T) {
+	qb := builder.MySQL()
+	user := User{Name: "Alice"}
+	b := qb.Insert("users").Model(user)
+	sqlStr, _, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(sqlStr, "INSERT INTO `users`") {
+		t.Errorf("unexpected SQL: %s", sqlStr)
+	}
+}
+
+func TestInsertModelIncludePK(t *testing.T) {
+	qb := builder.MySQL()
+	user := User{ID: 1, Name: "Alice", Age: 30}
+	b := qb.Insert("users").Model(user)
+	sqlStr, args, err := b.SQL()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(sqlStr, "`id`") {
+		t.Errorf("primary key should be excluded by default: %s", sqlStr)
+	}
+	if len(args) != 3 {
+		t.Errorf("expected 3 args (name, age, created_at), got %d: %v", len(args), args)
+	}
+}

@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 
 	"github.com/nikola-chen/corm/clause"
@@ -140,7 +139,7 @@ func (b *SelectBuilder) FromAs(table, alias string) *SelectBuilder {
 	}
 	alias = strings.TrimSpace(alias)
 	if !isSimpleIdent(alias) {
-		b.err = errors.New("corm: invalid alias identifier")
+		b.err = errInvalidAlias
 		return b
 	}
 	b.fromTable = qTable + " AS " + alias
@@ -155,12 +154,12 @@ func (b *SelectBuilder) FromSelect(sub *SelectBuilder, alias string) *SelectBuil
 		return b
 	}
 	if sub == nil {
-		b.err = errors.New("corm: nil subquery")
+		b.err = errNilSubquery
 		return b
 	}
 	alias = strings.TrimSpace(alias)
 	if !isSimpleIdent(alias) {
-		b.err = errors.New("corm: invalid alias identifier")
+		b.err = errInvalidAlias
 		return b
 	}
 	b.fromTable = ""
@@ -333,12 +332,12 @@ func (b *SelectBuilder) joinOn(joinType, table string, onExpr clause.Expr) *Sele
 		return b
 	}
 	if strings.TrimSpace(onExpr.SQL) == "" {
-		b.err = errors.New("corm: empty join condition")
+		b.err = errEmptyJoinCond
 		return b
 	}
 	qTable, ok := quoteIdentStrict(b.d, table)
 	if !ok {
-		b.err = errors.New("corm: invalid table identifier")
+		b.err = errInvalidTable
 		return b
 	}
 	joinSQL := joinType + " " + qTable + " ON " + onExpr.SQL
@@ -351,17 +350,17 @@ func (b *SelectBuilder) joinOnAs(joinType, table, alias string, onExpr clause.Ex
 		return b
 	}
 	if strings.TrimSpace(onExpr.SQL) == "" {
-		b.err = errors.New("corm: empty join condition")
+		b.err = errEmptyJoinCond
 		return b
 	}
 	qTable, ok := quoteIdentStrict(b.d, table)
 	if !ok {
-		b.err = errors.New("corm: invalid table identifier")
+		b.err = errInvalidTable
 		return b
 	}
 	alias = strings.TrimSpace(alias)
 	if !isSimpleIdent(alias) {
-		b.err = errors.New("corm: invalid alias identifier")
+		b.err = errInvalidAlias
 		return b
 	}
 	joinSQL := joinType + " " + qTable + " AS " + alias + " ON " + onExpr.SQL
@@ -374,16 +373,16 @@ func (b *SelectBuilder) joinSelectAs(joinType string, sub *SelectBuilder, alias 
 		return b
 	}
 	if sub == nil {
-		b.err = errors.New("corm: nil subquery")
+		b.err = errNilSubquery
 		return b
 	}
 	if strings.TrimSpace(onExpr.SQL) == "" {
-		b.err = errors.New("corm: empty join condition")
+		b.err = errEmptyJoinCond
 		return b
 	}
 	alias = strings.TrimSpace(alias)
 	if !isSimpleIdent(alias) {
-		b.err = errors.New("corm: invalid alias identifier")
+		b.err = errInvalidAlias
 		return b
 	}
 	b.joins = append(b.joins, selectJoinItem{
@@ -444,7 +443,7 @@ func (b *SelectBuilder) CrossJoin(table string) *SelectBuilder {
 	}
 	qTable, ok := quoteIdentStrict(b.d, table)
 	if !ok {
-		b.err = errors.New("corm: invalid table identifier")
+		b.err = errInvalidTable
 		return b
 	}
 	b.joins = append(b.joins, selectJoinItem{kind: selectJoinExpr, expr: clause.Expr{SQL: "CROSS JOIN " + qTable, Args: clause.EmptyArgs()}})
@@ -457,12 +456,12 @@ func (b *SelectBuilder) CrossJoinAs(table, alias string) *SelectBuilder {
 	}
 	qTable, ok := quoteIdentStrict(b.d, table)
 	if !ok {
-		b.err = errors.New("corm: invalid table identifier")
+		b.err = errInvalidTable
 		return b
 	}
 	alias = strings.TrimSpace(alias)
 	if !isSimpleIdent(alias) {
-		b.err = errors.New("corm: invalid alias identifier")
+		b.err = errInvalidAlias
 		return b
 	}
 	b.joins = append(b.joins, selectJoinItem{kind: selectJoinExpr, expr: clause.Expr{SQL: "CROSS JOIN " + qTable + " AS " + alias, Args: clause.EmptyArgs()}})
@@ -524,7 +523,7 @@ func (b *SelectBuilder) union(op string, other *SelectBuilder) *SelectBuilder {
 		return b
 	}
 	if other == nil {
-		b.err = errors.New("corm: nil subquery")
+		b.err = errNilSubquery
 		return b
 	}
 	b.unions = append(b.unions, selectUnionItem{op: op, sub: other})
@@ -542,7 +541,7 @@ func (b *SelectBuilder) GroupBy(columns ...string) *SelectBuilder {
 	for _, c := range columns {
 		q, ok := quoteIdentStrict(b.d, c)
 		if !ok {
-			b.err = errors.New("corm: invalid column identifier")
+			b.err = errInvalidColumn
 			return b
 		}
 		b.groupBy = append(b.groupBy, q)
@@ -568,7 +567,7 @@ func (b *SelectBuilder) OrderBy(column, dir string) *SelectBuilder {
 	}
 	col, ok := quoteIdentStrict(b.d, column)
 	if !ok {
-		b.err = errors.New("corm: invalid column identifier")
+		b.err = errInvalidColumn
 		return b
 	}
 	dir = strings.TrimSpace(dir)
@@ -630,7 +629,7 @@ func (b *SelectBuilder) Limit(limit int) *SelectBuilder {
 		b.limit = nil
 		return b
 	}
-	b.limit = new(limit)
+	b.limit = &limit
 	return b
 }
 
@@ -645,7 +644,7 @@ func (b *SelectBuilder) Offset(offset int) *SelectBuilder {
 		b.offset = nil
 		return b
 	}
-	b.offset = new(offset)
+	b.offset = &offset
 	return b
 }
 
@@ -655,7 +654,7 @@ func (b *SelectBuilder) SQL() (string, []any, error) {
 		return "", nil, b.err
 	}
 	if b.d == nil {
-		return "", nil, errors.New("corm: nil dialect")
+		return "", nil, errNilDialect
 	}
 
 	buf := getBuffer()
@@ -670,7 +669,7 @@ func (b *SelectBuilder) SQL() (string, []any, error) {
 
 func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 	if strings.TrimSpace(b.fromTable) == "" && b.fromSub == nil {
-		return errors.New("corm: missing table for select")
+		return errMissingTable
 	}
 
 	buf.WriteString("SELECT ")
@@ -688,7 +687,7 @@ func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 			case selectColumnIdent:
 				q, ok := quoteSelectColumnStrict(b.d, c.ident)
 				if !ok {
-					return errors.New("corm: invalid select column identifier, use SelectExpr for expressions")
+					return errSelectColumnIdent
 				}
 				buf.WriteString(q)
 			case selectColumnExpr:
@@ -696,7 +695,7 @@ func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 					return err
 				}
 			default:
-				return errors.New("corm: invalid select column kind")
+				return errSelectColumnKind
 			}
 		}
 	}
@@ -721,7 +720,7 @@ func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 			}
 		case selectJoinSubquery:
 			if j.sub == nil {
-				return errors.New("corm: nil subquery")
+				return errNilSubquery
 			}
 			buf.WriteString(j.joinType)
 			buf.WriteByte('(')
@@ -735,7 +734,7 @@ func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 				return err
 			}
 		default:
-			return errors.New("corm: invalid join kind")
+			return errInvalidJoinKind
 		}
 	}
 
@@ -758,7 +757,7 @@ func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 		wrote := 0
 		for _, h := range b.having {
 			if strings.TrimSpace(h.SQL) == "" {
-				return errors.New("corm: empty HAVING expression")
+				return errEmptyHaving
 			}
 			if wrote > 0 {
 				buf.WriteString(" AND ")
@@ -774,7 +773,7 @@ func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 
 	for _, u := range b.unions {
 		if u.sub == nil {
-			return errors.New("corm: nil subquery")
+			return errNilSubquery
 		}
 		buf.WriteByte(' ')
 		buf.WriteString(u.op)
@@ -786,7 +785,7 @@ func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 	}
 
 	if len(b.unions) > 0 && b.forUpdate {
-		return errors.New("corm: FOR UPDATE with UNION is not supported")
+		return errForUpdateUnion
 	}
 
 	if len(b.orderBy) > 0 {
@@ -825,7 +824,7 @@ func (b *SelectBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 
 func (b *SelectBuilder) Query(ctx context.Context) (*sql.Rows, error) {
 	if b.exec == nil {
-		return nil, errors.New("corm: missing Executor for select")
+		return nil, errMissingExecutor
 	}
 	sqlStr, args, err := b.SQL()
 	if err != nil {

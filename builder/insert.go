@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -95,11 +94,11 @@ func (b *InsertBuilder) InsertIgnore() *InsertBuilder {
 		return b
 	}
 	if b.d == nil {
-		b.err = errors.New("corm: nil dialect")
+		b.err = errNilDialect
 		return b
 	}
 	if b.d.Name() != "mysql" {
-		b.err = errors.New("corm: InsertIgnore only supported by MySQL; use OnConflict().DoNothing() for PostgreSQL")
+		b.err = errInsertIgnoreDialect
 		return b
 	}
 	b.insertIgnore = true
@@ -124,12 +123,12 @@ func (b *InsertBuilder) Model(dest any) *InsertBuilder {
 	}
 	if b.table == "" {
 		if strings.TrimSpace(s.Table) == "" {
-			b.err = errors.New("corm: missing table for insert: model has no table name")
+			b.err = errMissingTable
 			return b
 		}
 		if b.d != nil {
 			if _, ok := quoteIdentStrict(b.d, s.Table); !ok {
-				b.err = errors.New("corm: invalid table identifier from model")
+				b.err = errInvalidTable
 				return b
 			}
 		}
@@ -155,7 +154,7 @@ func (b *InsertBuilder) Model(dest any) *InsertBuilder {
 		for _, col := range b.columns {
 			v, ok := byCol[strings.ToLower(col)]
 			if !ok {
-				b.err = errors.New("corm: unknown column in Model: " + col)
+				b.err = unknownColumnErr(col)
 				return b
 			}
 			row = append(row, v)
@@ -210,7 +209,7 @@ func (b *InsertBuilder) Map(values map[string]any) *InsertBuilder {
 				v, ok = normValues[strings.ToLower(col)]
 			}
 			if !ok {
-				b.err = errors.New("corm: missing value for column: " + col)
+				b.err = missingColumnValueErr(col)
 				return b
 			}
 			row = append(row, v)
@@ -225,7 +224,7 @@ func (b *InsertBuilder) Map(values map[string]any) *InsertBuilder {
 	row := make([]any, 0, len(keys))
 	for _, k := range keys {
 		if _, ok := quoteColumnStrict(b.d, k); !ok {
-			b.err = errors.New("corm: invalid column identifier")
+			b.err = errInvalidColumn
 			return b
 		}
 		b.columns = append(b.columns, k)
@@ -253,7 +252,7 @@ func (b *InsertBuilder) MapLowerKeys(values map[string]any) *InsertBuilder {
 	for _, col := range b.columns {
 		v, ok := values[strings.ToLower(col)]
 		if !ok {
-			b.err = errors.New("corm: missing value for column: " + col)
+			b.err = missingColumnValueErr(col)
 			return b
 		}
 		row = append(row, v)
@@ -293,7 +292,7 @@ func (b *InsertBuilder) Columns(cols ...string) *InsertBuilder {
 	}
 	for _, c := range cols {
 		if _, ok := quoteColumnStrict(b.d, c); !ok {
-			b.err = errors.New("corm: invalid column identifier")
+			b.err = errInvalidColumn
 			return b
 		}
 		b.columns = append(b.columns, c)
@@ -317,7 +316,7 @@ func (b *InsertBuilder) Returning(cols ...string) *InsertBuilder {
 	}
 	for _, c := range cols {
 		if _, ok := quoteColumnStrict(b.d, c); !ok {
-			b.err = errors.New("corm: invalid column identifier")
+			b.err = errInvalidColumn
 			return b
 		}
 		b.returning = append(b.returning, c)
@@ -331,7 +330,7 @@ func (b *InsertBuilder) SQL() (string, []any, error) {
 		return "", nil, b.err
 	}
 	if b.d == nil {
-		return "", nil, errors.New("corm: nil dialect")
+		return "", nil, errNilDialect
 	}
 	buf := getBuffer()
 	defer putBuffer(buf)
@@ -344,10 +343,10 @@ func (b *InsertBuilder) SQL() (string, []any, error) {
 
 func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 	if strings.TrimSpace(b.table) == "" {
-		return errors.New("corm: missing table for insert")
+		return errMissingTable
 	}
 	if len(b.columns) == 0 {
-		return errors.New("corm: missing columns for insert")
+		return errMissingInsertCols
 	}
 
 	buf.WriteString("INSERT ")
@@ -357,7 +356,7 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 	buf.WriteString("INTO ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)
 	if !ok {
-		return errors.New("corm: invalid table identifier")
+		return errInvalidTable
 	}
 	buf.WriteString(qTable)
 	buf.WriteString(" (")
@@ -367,7 +366,7 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 		}
 		qCol, ok := quoteColumnStrict(b.d, c)
 		if !ok {
-			return errors.New("corm: invalid column identifier")
+			return errInvalidColumn
 		}
 		buf.WriteString(qCol)
 	}
@@ -380,7 +379,7 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 		}
 	} else {
 		if len(b.rows) == 0 {
-			return errors.New("corm: missing values for insert")
+			return errMissingInsertValues
 		}
 		buf.WriteString(" VALUES ")
 		for r, row := range b.rows {
@@ -388,7 +387,7 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 				// To avoid panic if we used buf.WriteString(ab.add(row[i])) with wrong index
 				// although here we iterate range row, so panic is unlikely unless we iterate b.columns
 				// But logical mismatch is an error.
-				return errors.New("corm: insert values length mismatch columns")
+				return errInsertValueMismatch
 			}
 			if r > 0 {
 				buf.WriteString(", ")
@@ -399,7 +398,7 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 					buf.WriteString(", ")
 				}
 				if i >= len(row) {
-					return errors.New("corm: insert values length mismatch columns")
+					return errInsertValueMismatch
 				}
 				buf.WriteString(ab.add(row[i]))
 			}
@@ -409,7 +408,7 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 
 	if len(b.returning) > 0 {
 		if !b.d.SupportsReturning() {
-			return errors.New("corm: RETURNING is not supported by " + b.d.Name() + " dialect")
+			return returningDialectErr(b.d.Name())
 		}
 		buf.WriteString(" RETURNING ")
 		for i, c := range b.returning {
@@ -418,7 +417,7 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 			}
 			qCol, ok := quoteColumnStrict(b.d, c)
 			if !ok {
-				return errors.New("corm: invalid column identifier")
+				return errInvalidColumn
 			}
 			buf.WriteString(qCol)
 		}
@@ -439,7 +438,7 @@ func (b *InsertBuilder) appendSQL(buf *strings.Builder, ab *argBuilder) error {
 
 func (b *InsertBuilder) Exec(ctx context.Context) (sql.Result, error) {
 	if b.exec == nil {
-		return nil, errors.New("corm: missing Executor for insert")
+		return nil, errMissingExecutor
 	}
 	sqlStr, args, err := b.SQL()
 	if err != nil {

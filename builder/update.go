@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -98,12 +97,12 @@ func (b *UpdateBuilder) Model(dest any) *UpdateBuilder {
 	}
 	if b.table == "" {
 		if strings.TrimSpace(s.Table) == "" {
-			b.err = errors.New("corm: missing table for update: model has no table name")
+			b.err = errMissingTable
 			return b
 		}
 		if b.d != nil {
 			if _, ok := quoteIdentStrict(b.d, s.Table); !ok {
-				b.err = errors.New("corm: invalid table identifier from model")
+				b.err = errInvalidTable
 				return b
 			}
 		}
@@ -132,11 +131,11 @@ func (b *UpdateBuilder) Set(column string, value any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use Set on batch update, use Models/Maps")
+		b.err = errBatchSet
 		return b
 	}
 	if _, ok := quoteColumnStrict(b.d, column); !ok {
-		b.err = errors.New("corm: invalid column identifier")
+		b.err = errInvalidColumn
 		return b
 	}
 	b.sets = append(b.sets, setItem{column: column, value: value})
@@ -150,11 +149,11 @@ func (b *UpdateBuilder) SetExpr(column string, expr clause.Expr) *UpdateBuilder 
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use SetExpr on batch update, use Models/Maps")
+		b.err = errBatchSetExpr
 		return b
 	}
 	if _, ok := quoteColumnStrict(b.d, column); !ok {
-		b.err = errors.New("corm: invalid column identifier")
+		b.err = errInvalidColumn
 		return b
 	}
 	b.sets = append(b.sets, setItem{column: column, value: expr})
@@ -168,12 +167,12 @@ func (b *UpdateBuilder) Increment(column string, amount any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use Increment on batch update, use Models/Maps")
+		b.err = errBatchIncr
 		return b
 	}
 	col, ok := quoteColumnStrict(b.d, column)
 	if !ok {
-		b.err = errors.New("corm: invalid column identifier")
+		b.err = errInvalidColumn
 		return b
 	}
 	b.sets = append(b.sets, setItem{column: column, value: clause.Expr{SQL: col + " + ?", Args: []any{amount}}})
@@ -187,12 +186,12 @@ func (b *UpdateBuilder) Decrement(column string, amount any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use Decrement on batch update, use Models/Maps")
+		b.err = errBatchDecr
 		return b
 	}
 	col, ok := quoteColumnStrict(b.d, column)
 	if !ok {
-		b.err = errors.New("corm: invalid column identifier")
+		b.err = errInvalidColumn
 		return b
 	}
 	b.sets = append(b.sets, setItem{column: column, value: clause.Expr{SQL: col + " - ?", Args: []any{amount}}})
@@ -206,7 +205,7 @@ func (b *UpdateBuilder) Map(values map[string]any) *UpdateBuilder {
 		return b
 	}
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use Map(map) on batch update, use Maps([]map)")
+		b.err = errBatchMap
 		return b
 	}
 	keys := slices.Collect(maps.Keys(values))
@@ -214,7 +213,7 @@ func (b *UpdateBuilder) Map(values map[string]any) *UpdateBuilder {
 
 	for _, k := range keys {
 		if _, ok := quoteColumnStrict(b.d, k); !ok {
-			b.err = errors.New("corm: invalid column identifier")
+			b.err = errInvalidColumn
 			return b
 		}
 		b.sets = append(b.sets, setItem{column: k, value: values[k]})
@@ -229,12 +228,12 @@ func (b *UpdateBuilder) JoinAs(table, alias string, onExpr clause.Expr) *UpdateB
 	}
 	qTable, ok := quoteIdentStrict(b.d, table)
 	if !ok {
-		b.err = errors.New("corm: invalid table identifier in join")
+		b.err = errInvalidTable
 		return b
 	}
 	alias = strings.TrimSpace(alias)
 	if !isSimpleIdent(alias) {
-		b.err = errors.New("corm: invalid alias identifier")
+		b.err = errInvalidAlias
 		return b
 	}
 	joinSQL := "JOIN " + qTable + " AS " + alias + " ON " + onExpr.SQL
@@ -249,12 +248,12 @@ func (b *UpdateBuilder) FromAs(table, alias string) *UpdateBuilder {
 	}
 	qTable, ok := quoteIdentStrict(b.d, table)
 	if !ok {
-		b.err = errors.New("corm: invalid table identifier in from")
+		b.err = errInvalidTable
 		return b
 	}
 	alias = strings.TrimSpace(alias)
 	if !isSimpleIdent(alias) {
-		b.err = errors.New("corm: invalid alias identifier")
+		b.err = errInvalidAlias
 		return b
 	}
 	b.fromAlias = qTable + " AS " + alias
@@ -268,7 +267,7 @@ func (b *UpdateBuilder) Returning(columns ...string) *UpdateBuilder {
 	}
 	for _, c := range columns {
 		if _, ok := quoteColumnStrict(b.d, c); !ok {
-			b.err = errors.New("corm: invalid column identifier")
+			b.err = errInvalidColumn
 			return b
 		}
 	}
@@ -518,7 +517,7 @@ func (b *UpdateBuilder) Key(column string) *UpdateBuilder {
 	}
 	if b.batch == nil {
 		if len(b.sets) > 0 || len(b.where.items) > 0 {
-			b.err = errors.New("corm: cannot switch to batch update after using Set/Where")
+			b.err = errBatchAfterSet
 			return b
 		}
 		b.batch = newBatchUpdate(b.exec, b.d, b.table)
@@ -533,7 +532,7 @@ func (b *UpdateBuilder) Models(models any) *UpdateBuilder {
 	}
 	if b.batch == nil {
 		if len(b.sets) > 0 || len(b.where.items) > 0 {
-			b.err = errors.New("corm: cannot switch to batch update after using Set/Where")
+			b.err = errBatchAfterSet
 			return b
 		}
 		b.batch = newBatchUpdate(b.exec, b.d, b.table)
@@ -552,7 +551,7 @@ func (b *UpdateBuilder) Maps(rows []map[string]any) *UpdateBuilder {
 	}
 	if b.batch == nil {
 		if len(b.sets) > 0 || len(b.where.items) > 0 {
-			b.err = errors.New("corm: cannot switch to batch update after using Set/Where")
+			b.err = errBatchAfterSet
 			return b
 		}
 		b.batch = newBatchUpdate(b.exec, b.d, b.table)
@@ -571,7 +570,7 @@ func (b *UpdateBuilder) MapsLowerKeys(rows []map[string]any) *UpdateBuilder {
 	}
 	if b.batch == nil {
 		if len(b.sets) > 0 || len(b.where.items) > 0 {
-			b.err = errors.New("corm: cannot switch to batch update after using Set/Where")
+			b.err = errBatchAfterSet
 			return b
 		}
 		b.batch = newBatchUpdate(b.exec, b.d, b.table)
@@ -593,13 +592,13 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 		return b.batch.SQL()
 	}
 	if b.d == nil {
-		return "", nil, errors.New("corm: nil dialect")
+		return "", nil, errNilDialect
 	}
 	if strings.TrimSpace(b.table) == "" {
-		return "", nil, errors.New("corm: missing table for update")
+		return "", nil, errMissingTable
 	}
 	if len(b.sets) == 0 {
-		return "", nil, errors.New("corm: missing set values for update")
+		return "", nil, errMissingSetValues
 	}
 
 	buf := getBuffer()
@@ -609,7 +608,7 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 	buf.WriteString("UPDATE ")
 	qTable, ok := quoteIdentStrict(b.d, b.table)
 	if !ok {
-		return "", nil, errors.New("corm: invalid table identifier")
+		return "", nil, errInvalidTable
 	}
 	buf.WriteString(qTable)
 
@@ -654,15 +653,15 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 	}
 
 	if !b.allowEmptyWhere && len(b.where.items) == 0 {
-		return "", nil, errors.New("corm: update without where clause is not allowed, use AllowEmptyWhere() to override")
+		return "", nil, errUpdateNoWhere
 	}
 
 	if b.limit != nil {
 		if *b.limit < 0 {
-			return "", nil, errors.New("corm: invalid limit")
+			return "", nil, errInvalidLimit
 		}
 		if b.d.Name() != "mysql" {
-			return "", nil, errors.New("corm: update limit is only supported by mysql dialect")
+			return "", nil, errUpdateLimitDialect
 		}
 		buf.WriteString(" LIMIT ")
 		buf.WriteString(ab.add(*b.limit))
@@ -670,7 +669,7 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 
 	if len(b.returning) > 0 {
 		if !b.d.SupportsReturning() {
-			return "", nil, errors.New("corm: RETURNING is not supported by " + b.d.Name() + " dialect")
+			return "", nil, returningDialectErr(b.d.Name())
 		}
 		buf.WriteString(" RETURNING ")
 		for i, c := range b.returning {
@@ -679,7 +678,7 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 			}
 			qCol, ok := quoteColumnStrict(b.d, c)
 			if !ok {
-				return "", nil, errors.New("corm: invalid column identifier")
+				return "", nil, errInvalidColumn
 			}
 			buf.WriteString(qCol)
 		}
@@ -689,13 +688,18 @@ func (b *UpdateBuilder) SQL() (string, []any, error) {
 }
 
 // Limit adds a LIMIT clause.
+// A value of 0 or negative means no limit (the LIMIT clause is omitted).
 // Note: LIMIT on UPDATE is not standard SQL and may not be supported by all dialects (e.g. Postgres).
 func (b *UpdateBuilder) Limit(limit int) *UpdateBuilder {
 	if b.batch != nil {
-		b.err = errors.New("corm: cannot use Limit on batch update")
+		b.err = errBatchLimit
 		return b
 	}
-	b.limit = new(limit)
+	if limit <= 0 {
+		b.limit = nil
+		return b
+	}
+	b.limit = &limit
 	return b
 }
 
@@ -704,7 +708,7 @@ func (b *UpdateBuilder) Exec(ctx context.Context) (sql.Result, error) {
 		return b.batch.Exec(ctx)
 	}
 	if b.exec == nil {
-		return nil, errors.New("corm: missing Executor for update")
+		return nil, errMissingExecutor
 	}
 	sqlStr, args, err := b.SQL()
 	if err != nil {
