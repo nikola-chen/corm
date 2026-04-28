@@ -68,7 +68,7 @@ func (b *InsertBuilder) Models(models any) *InsertBuilder {
 	if cap(b.rows) == 0 && rv.Len() > 0 {
 		b.rows = make([][]any, 0, rv.Len())
 	}
-	for i := 0; i < rv.Len(); i++ {
+	for i := range rv.Len() {
 		ev := rv.Index(i)
 		if ptrElem {
 			if ev.IsNil() {

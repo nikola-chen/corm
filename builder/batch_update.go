@@ -183,7 +183,7 @@ func (b *batchUpdateBuilder) Models(models any) *batchUpdateBuilder {
 		b.rowsKeys = make([]any, 0, rv.Len())
 		b.rowsValues = make([][]any, 0, rv.Len())
 	}
-	for i := 0; i < rv.Len(); i++ {
+	for i := range rv.Len() {
 		ev := rv.Index(i)
 		if ptrElem {
 			if ev.IsNil() {

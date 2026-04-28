@@ -550,7 +550,23 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.6` (Go 1.26.2)
+- 当前版本：`v2.1.7` (Go 1.26.2)
+
+### v2.1.7 变更摘要（第五轮深度审计）
+
+**Go 1.26 现代化续：**
+- `clause.In()` 引入泛型 `flattenSlice[S ~[]E, E any]` 消除 8 个冗余类型分支。
+- 消除 `In()` 函数过时性能注释。
+- 现代化 `for i := 0; i < rv.Len(); i++` → `for i := range rv.Len()`（insert_batch.go、batch_update.go、schema.go、clause/expr.go）。
+- `buildIn` 增加空切片防御。
+
+**测试增强：**
+- scan 包新增 `TestIterEmpty`、`TestIterEarlyExit`、`TestIterWrongMapKeyType`、`TestIterNonStructNonMap` 测试（覆盖率 75.1% → 76.4%）。
+- schema 包覆盖率 89.0% → 90.4%。
+
+**代码清理：**
+- 移除 `In()` 函数中 70 行重复类型分支代码（8 → 11 行）。
+- clause 包覆盖率 77.2% → 77.6%。
 
 ### v2.1.6 变更摘要（第四轮深度审计）
 

@@ -225,7 +225,7 @@ func parseSlow(t reflect.Type) (*Schema, error) {
 }
 
 func parseStructFields(s *Schema, t reflect.Type, parentIndex []int) {
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		sf := t.Field(i)
 		if sf.Anonymous && sf.Type.Kind() == reflect.Struct && sf.PkgPath == "" {
 			parseStructFields(s, sf.Type, appendIndex(parentIndex, i))

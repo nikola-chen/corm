@@ -12,6 +12,19 @@ func EmptyArgs() []any {
 	return emptyArgs
 }
 
+// flattenSlice flattens a contiguous slice to []any using generics.
+// Returns nil if the input is empty.
+func flattenSlice[S ~[]E, E any](s S) []any {
+	if len(s) == 0 {
+		return nil
+	}
+	a := make([]any, len(s))
+	for i, v := range s {
+		a[i] = v
+	}
+	return a
+}
+
 // Expr represents a SQL expression fragment.
 type Expr struct {
 	SQL  string
@@ -90,73 +103,21 @@ func In(column string, values ...any) Expr {
 	if len(values) == 1 {
 		switch s := values[0].(type) {
 		case []any:
-			if len(s) == 0 {
-				return Expr{SQL: "1=0", Args: emptyArgs}
-			}
 			return buildIn(column, s)
 		case []string:
-			if len(s) == 0 {
-				return Expr{SQL: "1=0", Args: emptyArgs}
-			}
-			flattened := make([]any, len(s))
-			for i := range s {
-				flattened[i] = s[i]
-			}
-			return buildIn(column, flattened)
+			return buildIn(column, flattenSlice(s))
 		case []int:
-			if len(s) == 0 {
-				return Expr{SQL: "1=0", Args: emptyArgs}
-			}
-			flattened := make([]any, len(s))
-			for i := range s {
-				flattened[i] = s[i]
-			}
-			return buildIn(column, flattened)
+			return buildIn(column, flattenSlice(s))
 		case []int64:
-			if len(s) == 0 {
-				return Expr{SQL: "1=0", Args: emptyArgs}
-			}
-			flattened := make([]any, len(s))
-			for i := range s {
-				flattened[i] = s[i]
-			}
-			return buildIn(column, flattened)
+			return buildIn(column, flattenSlice(s))
 		case []uint64:
-			if len(s) == 0 {
-				return Expr{SQL: "1=0", Args: emptyArgs}
-			}
-			flattened := make([]any, len(s))
-			for i := range s {
-				flattened[i] = s[i]
-			}
-			return buildIn(column, flattened)
+			return buildIn(column, flattenSlice(s))
 		case []int32:
-			if len(s) == 0 {
-				return Expr{SQL: "1=0", Args: emptyArgs}
-			}
-			flattened := make([]any, len(s))
-			for i := range s {
-				flattened[i] = s[i]
-			}
-			return buildIn(column, flattened)
+			return buildIn(column, flattenSlice(s))
 		case []uint32:
-			if len(s) == 0 {
-				return Expr{SQL: "1=0", Args: emptyArgs}
-			}
-			flattened := make([]any, len(s))
-			for i := range s {
-				flattened[i] = s[i]
-			}
-			return buildIn(column, flattened)
+			return buildIn(column, flattenSlice(s))
 		case []uint:
-			if len(s) == 0 {
-				return Expr{SQL: "1=0", Args: emptyArgs}
-			}
-			flattened := make([]any, len(s))
-			for i := range s {
-				flattened[i] = s[i]
-			}
-			return buildIn(column, flattened)
+			return buildIn(column, flattenSlice(s))
 		case []byte:
 		default:
 			rv := reflect.ValueOf(values[0])
@@ -165,13 +126,6 @@ func In(column string, values ...any) Expr {
 				if n == 0 {
 					return Expr{SQL: "1=0", Args: emptyArgs}
 				}
-
-				// Optimization: if it's a slice of simple types, we can iterate without reflection for each element?
-				// But we are in 'default' case, so we don't know the type.
-				// However, rv.Index(i).Interface() allocates.
-				// We can try to handle more common types here if needed (e.g. []uint, []int32).
-				// For now, the reflect path is acceptable for obscure types.
-
 				flattened := make([]any, n)
 				for i := range n {
 					flattened[i] = rv.Index(i).Interface()
@@ -185,7 +139,7 @@ func In(column string, values ...any) Expr {
 	for _, v := range values {
 		rv := reflect.ValueOf(v)
 		if rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() != reflect.Uint8 { // exclude []byte
-			for i := 0; i < rv.Len(); i++ {
+			for i := range rv.Len() {
 				flattened = append(flattened, rv.Index(i).Interface())
 			}
 		} else {
@@ -201,6 +155,9 @@ func In(column string, values ...any) Expr {
 }
 
 func buildIn(column string, args []any) Expr {
+	if len(args) == 0 {
+		return Expr{SQL: "1=0", Args: emptyArgs}
+	}
 	n := len(args)
 	switch n {
 	case 1:

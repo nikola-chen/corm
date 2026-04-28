@@ -699,6 +699,21 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.7 (Fifth Round Deep Audit)
+
+**Go 1.26 Modernizations Continued:**
+- Introduced generic `flattenSlice[S ~[]E, E any]` in `clause.In()` to eliminate 8 redundant type switch branches (~70 lines → 11 lines).
+- Removed outdated performance commentary from `In()`.
+- Modernized `for i := 0; i < rv.Len(); i++` → `for i := range rv.Len()` (insert_batch.go, batch_update.go, schema.go, clause/expr.go).
+- Added empty slice guard to `buildIn`.
+
+**Testing Enhancements:**
+- Added `TestIterEmpty`, `TestIterEarlyExit`, `TestIterWrongMapKeyType`, `TestIterNonStructNonMap` to scan package (coverage 75.1% → 76.4%).
+- Schema coverage 89.0% → 90.4%, clause coverage 77.2% → 77.6%.
+
+**Code Reduction:**
+- 8 duplicated type branches in `In()` (`[]string`/`[]int`/`[]int64`/`[]uint64`/`[]int32`/`[]uint32`/`[]uint`) unified with generics.
+
 ### v2.1.6 (Fourth Round Deep Audit)
 
 **Go 1.26 Modernizations:**

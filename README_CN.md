@@ -675,6 +675,21 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
+### v2.1.7（第五轮深度审计）
+
+**Go 1.26 现代化续：**
+- `clause.In()` 引入泛型工具函数 `flattenSlice[S ~[]E, E any]`，消除 8 个冗余类型分支（约 70 行 → 11 行）。
+- 消除 `In()` 函数中过时的性能优化注释。
+- 现代化 `for i := 0; i < rv.Len(); i++` → `for i := range rv.Len()`（insert_batch.go、batch_update.go、schema.go、clause/expr.go）。
+- `buildIn` 函数增加空切片防御检查。
+
+**测试增强：**
+- scan 包新增 `TestIterEmpty`、`TestIterEarlyExit`、`TestIterWrongMapKeyType`、`TestIterNonStructNonMap` 测试（覆盖率 75.1% → 76.4%）。
+- schema 包覆盖率 89.0% → 90.4%，clause 包 77.2% → 77.6%。
+
+**代码清理：**
+- `In()` 函数中 8 个重复类型分支（`[]string`/`[]int`/`[]int64`/`[]uint64`/`[]int32`/`[]uint32`/`[]uint`）统一为泛型调用。
+
 ### v2.1.6（第四轮深度审计）
 
 **Go 1.26 现代化：**
