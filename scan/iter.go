@@ -2,7 +2,6 @@ package scan
 
 import (
 	"database/sql"
-	"errors"
 	"iter"
 	"reflect"
 
@@ -32,7 +31,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 		}
 
 		if baseElemT == nil {
-			yield(zeroT, errors.New("corm: dest type cannot be nil interface"))
+			yield(zeroT, errNilInterfaceDest)
 			return
 		}
 
@@ -79,7 +78,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 
 		case reflect.Map:
 			if targetT.Kind() != reflect.Map || targetT.Key().Kind() != reflect.String {
-				yield(zeroT, errors.New("corm: map element must have string keys"))
+				yield(zeroT, errMapStringKeys)
 				return
 			}
 			valT := targetT.Elem()
@@ -142,7 +141,7 @@ func Iter[T any](rows *sql.Rows) iter.Seq2[T, error] {
 			}
 
 		default:
-			yield(zeroT, errors.New("corm: dest must be struct, *struct, or map"))
+			yield(zeroT, errStructOrMapDest)
 		}
 	}
 }

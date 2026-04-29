@@ -699,6 +699,27 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.12 (Thirteenth Round Deep Audit — golang-fullstack-best-practices Cross-Audit)
+
+**Error Handling Unification:**
+- Added 2 new sentinel errors in `scan/errors.go` (`errNilInterfaceDest`, `errStructOrMapDest`) and replaced 3 inline `errors.New()` calls in `scan/iter.go`.
+- Replaced `errors.New()` + string concatenation with `fmt.Errorf()` + `%s` in `schema/schema.go`, removing unused `errors` import.
+
+**Comprehensive Cross-Audit (89 rules, 8 domains):**
+- **Concurrency Safety** (12/12): All `sync.Pool`, `sync.RWMutex`, single-flight parsing, goroutine patterns verified correct.
+- **Clean Architecture** (9/9): Dependency chain `clause/dialect/internal → schema/scan → builder → engine → corm` fully inward, zero circular dependencies.
+- **Design Patterns** (13/13): Fluent Builder pattern correct, no God Objects, type switches appropriately scoped.
+- **Idiomatic Go** (6/6): All interfaces ≤4 methods, pointer receivers for mutations, `clear()` builtin used for cache reset.
+- **PostgreSQL Syntax** (9/9): `$N`/`?` placeholders, double-quote escaping, RETURNING, ON CONFLICT, FOR SHARE, JSONB operator conflict detection all correct.
+- **Query Performance** (7/7): Connection pool config (MaxOpenConns/MaxIdleConns/Lifetime/IdleTime), SlowQuery threshold support verified.
+
+**Audit Summary:**
+- `go vet` clean, all tests pass, `go test -race` clean, `staticcheck` zero warnings.
+- No dead code or unused imports found.
+- No deprecated API usage detected.
+- All `sync.Pool`, `sync.RWMutex` patterns verified correct.
+- Coverage: overall 70.7% (internal 100%, dialect 97.2%, schema 89.0%, engine 86.4%, clause 88.8%, scan 76.4%, builder 64.5%).
+
 ### v2.1.11 (Twelfth Round Deep Audit — Cross-Audit Cleanup)
 
 **Dead Code Removal:**

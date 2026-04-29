@@ -1,7 +1,6 @@
 package schema
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -123,7 +122,7 @@ func ParseType(t reflect.Type) (*Schema, error) {
 		return nil, ErrInvalidModel
 	}
 	if t.Kind() != reflect.Struct {
-		return nil, errors.New("corm: model must be struct, got " + t.Kind().String())
+		return nil, fmt.Errorf("corm: model must be struct, got %s", t.Kind().String())
 	}
 
 	scCache.mu.RLock()

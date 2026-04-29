@@ -675,6 +675,27 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
+### v2.1.12（第十三轮深度审计 — golang-fullstack-best-practices 交叉审计）
+
+**错误处理统一：**
+- 新增 `scan/errors.go` 中 2 个哨兵错误（`errNilInterfaceDest`、`errStructOrMapDest`），替换 `scan/iter.go` 中 3 处内联 `errors.New()` 调用。
+- 将 `schema/schema.go` 中 `errors.New()` + 字符串拼接替换为 `fmt.Errorf()` + `%s`，移除未使用的 `errors` 导入。
+
+**全面交叉审计（89 条规则，8 个领域）：**
+- **并发安全**（12/12）：所有 `sync.Pool`、`sync.RWMutex`、单飞解析、goroutine 模式验证正确。
+- **Clean Architecture**（9/9）：依赖链 `clause/dialect/internal → schema/scan → builder → engine → corm` 完全向内，零循环依赖。
+- **设计模式**（13/13）：Fluent Builder 模式正确，无 God Object，类型切换作用域适当。
+- **惯用 Go**（6/6）：所有接口 ≤4 方法，指针接收者用于可变操作，`clear()` 内置函数用于缓存重置。
+- **PostgreSQL 语法**（9/9）：`$N`/`?` 占位符、双引号转义、RETURNING、ON CONFLICT、FOR SHARE、JSONB 操作符冲突检测全部正确。
+- **查询性能**（7/7）：连接池配置（MaxOpenConns/MaxIdleConns/Lifetime/IdleTime）、SlowQuery 阈值支持已验证。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过，`go test -race` 零竞态，`staticcheck` 零警告。
+- 未发现死代码或未使用的导入。
+- 未发现废弃 API 使用。
+- 所有 `sync.Pool`、`sync.RWMutex` 模式验证正确。
+- 覆盖率：总体 70.7%（internal 100%、dialect 97.2%、schema 89.0%、engine 86.4%、clause 88.8%、scan 76.4%、builder 64.5%）。
+
 ### v2.1.11（第十二轮深度审计 — 交叉审计清理）
 
 **死代码清理：**

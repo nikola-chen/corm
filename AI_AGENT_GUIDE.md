@@ -550,7 +550,25 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.11` (Go 1.26.2)
+- 当前版本：`v2.1.12` (Go 1.26.2)
+
+### v2.1.12 变更摘要（第十三轮深度审计 — golang-fullstack-best-practices 交叉审计）
+
+**错误处理统一：**
+- 新增 `scan/errors.go` 中 2 个哨兵错误（`errNilInterfaceDest`、`errStructOrMapDest`），替换 `scan/iter.go` 中 3 处内联 `errors.New()` 调用。
+- 将 `schema/schema.go` 中 `errors.New()` + 字符串拼接替换为 `fmt.Errorf()` + `%s`，移除未使用的 `errors` 导入。
+
+**全面交叉审计（89 条规则，8 个领域）：**
+- **并发安全**（12/12）：`sync.Pool`、`sync.RWMutex`、单飞解析、goroutine 模式全部正确。
+- **Clean Architecture**（9/9）：依赖链完全向内，零循环依赖。
+- **设计模式**（13/13）：Fluent Builder 模式正确，无 God Object。
+- **惯用 Go**（6/6）：接口 ≤4 方法，指针接收者，`clear()` 内置函数使用正确。
+- **PostgreSQL 语法**（9/9）：占位符/转义/RETURNING/ON CONFLICT/FOR SHARE/JSONB 全部正确。
+- **查询性能**（7/7）：连接池配置和 SlowQuery 阈值支持正确。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过，`go test -race` 零竞态。
+- 覆盖率：总体 70.7%。
 
 ### v2.1.11 变更摘要（第十二轮深度审计 — 交叉审计清理）
 
