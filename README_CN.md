@@ -675,6 +675,22 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
+### v2.1.11（第十二轮深度审计 — 交叉审计清理）
+
+**死代码清理：**
+- 移除 `builder/errors.go` 中未使用的 `errUnsupportedDialect` 变量（staticcheck U1000 确认）。
+
+**代码风格与一致性：**
+- 将 `errSQLTooLong` 哨兵错误从 `builder/arg_builder.go` 移至集中的 `builder/errors.go`，与 v2.1.10 错误统一化策略保持一致。
+- 移除 `errConflictDoNothing` 错误消息末尾的句号，符合 Go 错误字符串惯例（ST1005）。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过，`staticcheck` 零警告。
+- 未发现死代码或未使用的导入。
+- 未发现废弃 API 使用。
+- 所有 `sync.Pool`、`sync.RWMutex` 模式验证正确。
+- 覆盖率：总体 70.7%（internal 100%、dialect 97.2%、schema 89.0%、engine 86.4%、clause 88.8%、scan 76.4%、builder 64.5%）。
+
 ### v2.1.10（第九轮、第十轮 & 第十一轮深度审计）
 
 **Bug 修复：**

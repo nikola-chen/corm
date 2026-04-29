@@ -32,7 +32,7 @@ var (
 	errBatchLimit        = errors.New("corm: cannot use Limit on batch update")
 
 	errConflictColumn      = errors.New("corm: invalid column identifier in conflict clause")
-	errConflictDoNothing   = errors.New("corm: DoNothing() is only supported on Postgres. Use InsertIgnore() or raw suffix on MySQL.")
+	errConflictDoNothing   = errors.New("corm: DoNothing() is only supported on Postgres; use InsertIgnore() or raw suffix on MySQL")
 	errConflictDialect     = errors.New("corm: unsupported dialect for OnConflict")
 	errConflictNoCols      = errors.New("corm: Postgres requires constraint columns for ON CONFLICT DO UPDATE")
 	errInsertIgnoreDialect = errors.New("corm: InsertIgnore only supported by MySQL; use OnConflict().DoNothing() for PostgreSQL")
@@ -71,9 +71,9 @@ var (
 
 	errPGJsonbArrayOp       = errors.New("corm: postgres jsonb operator '?|/?&' conflicts with placeholder '?', use jsonb_exists_any/jsonb_exists_all")
 	errPGJsonbOp            = errors.New("corm: postgres jsonb operator '?' conflicts with placeholder '?', use jsonb_exists")
-	errUnsupportedDialect   = errors.New("corm: unsupported dialect")
 	errInsertOneNoReturning = errors.New("corm: insert.One requires Returning(...)")
 	errInsertOneDialect     = errors.New("corm: dialect does not support returning")
+	errSQLTooLong           = errors.New("corm: SQL statement exceeds maximum length of 1MB")
 )
 
 func unknownColumnErr(col string) error { return fmt.Errorf("corm: unknown column in Model: %s", col) }

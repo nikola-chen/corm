@@ -550,7 +550,21 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.10` (Go 1.26.2)
+- 当前版本：`v2.1.11` (Go 1.26.2)
+
+### v2.1.11 变更摘要（第十二轮深度审计 — 交叉审计清理）
+
+**死代码清理：**
+- 移除 `builder/errors.go` 中未使用的 `errUnsupportedDialect` 变量（staticcheck U1000 确认）。
+
+**代码风格与一致性：**
+- 将 `errSQLTooLong` 哨兵错误从 `builder/arg_builder.go` 移至集中的 `builder/errors.go`，与 v2.1.10 错误统一化策略保持一致。
+- 移除 `errConflictDoNothing` 错误消息末尾的句号，符合 Go 错误字符串惯例。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过，`staticcheck` 零警告。
+- 未发现死代码或未使用的导入。
+- 覆盖率：总体 70.7%。
 
 ### v2.1.10 变更摘要（第九轮、第十轮 & 第十一轮深度审计）
 

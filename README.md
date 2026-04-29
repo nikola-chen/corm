@@ -699,6 +699,22 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.11 (Twelfth Round Deep Audit — Cross-Audit Cleanup)
+
+**Dead Code Removal:**
+- Removed unused `errUnsupportedDialect` variable from `builder/errors.go` (confirmed by staticcheck U1000).
+
+**Code Style & Consistency:**
+- Moved `errSQLTooLong` sentinel from `builder/arg_builder.go` to centralized `builder/errors.go` for consistency with the v2.1.10 error unification policy.
+- Removed trailing period from `errConflictDoNothing` error message to comply with Go error string convention (ST1005).
+
+**Audit Summary:**
+- `go vet` clean, all tests pass, `staticcheck` zero warnings.
+- No dead code or unused imports found.
+- No deprecated API usage detected.
+- All `sync.Pool`, `sync.RWMutex` patterns verified correct.
+- Coverage: overall 70.7% (internal 100%, dialect 97.2%, schema 89.0%, engine 86.4%, clause 88.8%, scan 76.4%, builder 64.5%).
+
 ### v2.1.10 (Ninth, Tenth & Eleventh Round Deep Audits)
 
 **Bug Fixes:**

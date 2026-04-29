@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -90,7 +89,7 @@ func (a *argBuilder) appendExpr(e clause.Expr) error {
 	return nil
 }
 
-var errSQLTooLong = errors.New("corm: SQL statement exceeds maximum length of 1MB")
+
 
 func (a *argBuilder) checkAndWrite(sql string) error {
 	if a.buf.Len()+len(sql) > maxSQLLength {
