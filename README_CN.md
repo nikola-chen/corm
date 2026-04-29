@@ -675,6 +675,21 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
+### v2.1.13（性能优化 — 表名缓存）
+
+**表名缓存：**
+- 新增独立 `tableNameCache`，位于 `schema/schema.go`，容量上限 1024 条，RWMutex 保护并发访问。
+- 新增 `TableNameOf(model any) string` 和 `LookupTableName(t reflect.Type) string` 公开 API，实现零分配表名查询。
+- 消除 `parseSlow()` 中对非 `TableNamer` 类型的 `reflect.New(t)` 堆分配，改用 `reflect.PointerTo(t).Implements(tableNamerType)` 检查。
+- `LookupTableName` 降级查询路径：tableNameCache → schemaCache.Table → `cachedTableName()`，确保与已有 schema 解析结果一致。
+
+**性能结果（Apple M2，缓存命中）：**
+- `TableNameOf`：~15 ns/op，0 allocs/op
+- `LookupTableName`：~12 ns/op，0 allocs/op
+- `SchemaParse`（已有）：~16 ns/op，0 allocs/op（无变化）
+
+**测试：** 新增 13 个测试用例，覆盖 `TableNameOf`、`LookupTableName`、缓存一致性、并发安全、nil/非结构体输入、指针模型、schema 缓存回退。
+
 ### v2.1.12（第十三轮深度审计 — golang-fullstack-best-practices 交叉审计）
 
 **错误处理统一：**
@@ -688,6 +703,7 @@ for u, err := range engine.Iter[User](ctx, query) {
 - **惯用 Go**（6/6）：所有接口 ≤4 方法，指针接收者用于可变操作，`clear()` 内置函数用于缓存重置。
 - **PostgreSQL 语法**（9/9）：`$N`/`?` 占位符、双引号转义、RETURNING、ON CONFLICT、FOR SHARE、JSONB 操作符冲突检测全部正确。
 - **查询性能**（7/7）：连接池配置（MaxOpenConns/MaxIdleConns/Lifetime/IdleTime）、SlowQuery 阈值支持已验证。
+- **迁移安全**（N/A）：`corm` 是仅支持 DQL/DML 的 ORM，不提供 DDL 功能（无 `AutoMigrate`、`ALTER TABLE`、`CREATE INDEX` 或迁移文件）。全部 6 条迁移安全规则按设计不适用。
 
 **审计摘要：**
 - `go vet` 零告警，全部测试通过，`go test -race` 零竞态，`staticcheck` 零警告。

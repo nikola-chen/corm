@@ -102,6 +102,85 @@ type parseGroup struct {
 
 var pg = &parseGroup{items: make(map[reflect.Type]*parseEntry)}
 
+var tableNamerType = reflect.TypeFor[TableNamer]()
+
+type tableNameCache struct {
+	mu    sync.RWMutex
+	items map[reflect.Type]string
+	count int
+}
+
+var tnCache = &tableNameCache{items: make(map[reflect.Type]string, 256)}
+
+const maxTableNameCacheEntries = 1024
+
+func cachedTableName(t reflect.Type) string {
+	tnCache.mu.RLock()
+	if v, ok := tnCache.items[t]; ok {
+		tnCache.mu.RUnlock()
+		return v
+	}
+	tnCache.mu.RUnlock()
+
+	name := defaultTableName(t)
+	if reflect.PointerTo(t).Implements(tableNamerType) {
+		v := reflect.New(t)
+		if tn, ok := v.Interface().(TableNamer); ok {
+			if n := strings.TrimSpace(tn.TableName()); n != "" {
+				name = n
+			}
+		}
+	}
+
+	tnCache.mu.Lock()
+	if tnCache.count >= maxTableNameCacheEntries {
+		clear(tnCache.items)
+		tnCache.count = 0
+	}
+	if _, ok := tnCache.items[t]; !ok {
+		tnCache.items[t] = name
+		tnCache.count++
+	}
+	tnCache.mu.Unlock()
+
+	return name
+}
+
+func LookupTableName(t reflect.Type) string {
+	if t == nil || t.Kind() != reflect.Struct {
+		return ""
+	}
+	tnCache.mu.RLock()
+	if v, ok := tnCache.items[t]; ok {
+		tnCache.mu.RUnlock()
+		return v
+	}
+	tnCache.mu.RUnlock()
+
+	scCache.mu.RLock()
+	if v, ok := scCache.items[t]; ok {
+		scCache.mu.RUnlock()
+		return v.Table
+	}
+	scCache.mu.RUnlock()
+
+	return cachedTableName(t)
+}
+
+func TableNameOf(model any) string {
+	if model == nil {
+		return ""
+	}
+	t := reflect.TypeOf(model)
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return ""
+	}
+	return LookupTableName(t)
+}
+
 // Parse parses a struct model and returns its Schema.
 // It caches the result for future use.
 // If the struct has fields mapping to the same column name (via tag or snake_case),
@@ -201,14 +280,8 @@ func (e *schemaError) Error() string { return e.msg }
 func parseSlow(t reflect.Type) (*Schema, error) {
 	s := &Schema{
 		Type:     t,
-		Table:    defaultTableName(t),
+		Table:    cachedTableName(t),
 		ByColumn: map[string]*Field{},
-	}
-
-	if tn, ok := reflect.New(t).Interface().(TableNamer); ok {
-		if name := strings.TrimSpace(tn.TableName()); name != "" {
-			s.Table = name
-		}
 	}
 
 	parseStructFields(s, t, nil)

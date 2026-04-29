@@ -550,7 +550,21 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.12` (Go 1.26.2)
+- 当前版本：`v2.1.13` (Go 1.26.2)
+
+### v2.1.13 变更摘要（性能优化 — 表名缓存）
+
+**表名缓存：**
+- 新增独立 `tableNameCache`（`schema/schema.go`），容量上限 1024 条，RWMutex 保护并发访问。
+- 新增 `TableNameOf(model any) string` 和 `LookupTableName(t reflect.Type) string` 公开 API，实现零分配表名查询。
+- 消除 `parseSlow()` 中对非 `TableNamer` 类型的 `reflect.New(t)` 堆分配，改用 `reflect.PointerTo(t).Implements(tableNamerType)` 检查。
+- `LookupTableName` 降级查询路径：tableNameCache → schemaCache.Table → `cachedTableName()`。
+
+**性能结果（Apple M2，缓存命中）：**
+- `TableNameOf`：~15 ns/op，0 allocs/op
+- `LookupTableName`：~12 ns/op，0 allocs/op
+
+**测试：** 新增 13 个测试用例，覆盖缓存一致性、并发安全、边界输入。
 
 ### v2.1.12 变更摘要（第十三轮深度审计 — golang-fullstack-best-practices 交叉审计）
 
@@ -565,6 +579,7 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 - **惯用 Go**（6/6）：接口 ≤4 方法，指针接收者，`clear()` 内置函数使用正确。
 - **PostgreSQL 语法**（9/9）：占位符/转义/RETURNING/ON CONFLICT/FOR SHARE/JSONB 全部正确。
 - **查询性能**（7/7）：连接池配置和 SlowQuery 阈值支持正确。
+- **迁移安全**（N/A）：`corm` 仅支持 DQL/DML，无 DDL 功能（无 `AutoMigrate`、迁移文件等）。全部 6 条迁移安全规则按设计不适用。
 
 **审计摘要：**
 - `go vet` 零告警，全部测试通过，`go test -race` 零竞态。

@@ -699,6 +699,21 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.13 (Performance Optimization — Table Name Caching)
+
+**Table Name Cache:**
+- Added independent `tableNameCache` in `schema/schema.go` with bounded capacity (1024 entries) and RWMutex-protected concurrent access.
+- Added `TableNameOf(model any) string` and `LookupTableName(t reflect.Type) string` public API for zero-allocation table name lookup.
+- Eliminated `reflect.New(t)` heap allocation in `parseSlow()` for non-`TableNamer` types by using `reflect.PointerTo(t).Implements(tableNamerType)` check.
+- `LookupTableName` falls through: tableNameCache → schemaCache.Table → `cachedTableName()`, ensuring consistency with existing schema parse results.
+
+**Performance Results (Apple M2, cache hit):**
+- `TableNameOf`: ~15 ns/op, 0 allocs/op
+- `LookupTableName`: ~12 ns/op, 0 allocs/op
+- `SchemaParse` (existing): ~16 ns/op, 0 allocs/op (unchanged)
+
+**Tests:** 13 new test cases covering `TableNameOf`, `LookupTableName`, cache consistency, concurrent safety, nil/non-struct inputs, pointer models, and schema cache fallback.
+
 ### v2.1.12 (Thirteenth Round Deep Audit — golang-fullstack-best-practices Cross-Audit)
 
 **Error Handling Unification:**
@@ -712,6 +727,7 @@ err := e.Select("id", "name").
 - **Idiomatic Go** (6/6): All interfaces ≤4 methods, pointer receivers for mutations, `clear()` builtin used for cache reset.
 - **PostgreSQL Syntax** (9/9): `$N`/`?` placeholders, double-quote escaping, RETURNING, ON CONFLICT, FOR SHARE, JSONB operator conflict detection all correct.
 - **Query Performance** (7/7): Connection pool config (MaxOpenConns/MaxIdleConns/Lifetime/IdleTime), SlowQuery threshold support verified.
+- **Migration Safety** (N/A): `corm` is a DQL/DML-only ORM with no DDL support (no `AutoMigrate`, `ALTER TABLE`, `CREATE INDEX`, or migration files). All 6 migration-safety rules are not applicable by design.
 
 **Audit Summary:**
 - `go vet` clean, all tests pass, `go test -race` clean, `staticcheck` zero warnings.
