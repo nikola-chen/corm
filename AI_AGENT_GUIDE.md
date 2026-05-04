@@ -550,7 +550,26 @@ func (r *ProductRepository) DecrementStock(ctx context.Context, productID int64,
 
 - Go 版本：见 [go.mod](file:///Users/macrochen/Codespace/AI/corm/go.mod)
 - SQL 占位符与引用规则由方言决定：见 `dialect/`
-- 当前版本：`v2.1.11` (Go 1.26.2)
+- 当前版本：`v2.1.12` (Go 1.26.2)
+
+### v2.1.12 变更摘要（第十三轮深度审计 — 代码评审与最佳实践）
+
+**健壮性增强：**
+- 添加嵌套事务深度限制（最大 32 层），防止无界 savepoint 递归和潜在的栈溢出。
+- 新增 `errSavepointDepth` 哨兵错误用于深度超限提示。
+
+**性能优化：**
+- 将缓存驱逐策略从 `clear()`（全量清空）改为随机部分淘汰（25%），应用于 `scan/structPlanCache` 和 `schema/schemaCache`，减少长生命周期进程中的缓存抖动。
+
+**测试覆盖：**
+- 为 `UpdateBuilder.Where*` 方法添加全面测试（`WhereEq`、`WhereIn`、`WhereLike`、`WhereMap`、`WhereSubquery`、`WhereInSubquery`、`WhereExpr`、`WhereNotIn`、`WhereBetween`、`WhereNotLike`、`WhereExists`、`WhereNotExists`、`MapsLowerKeys`）。
+- 新增 `TestTxTransactionDepthLimit` 验证 savepoint 深度限制。
+- 覆盖率从 70.7% 提升至 72.1%。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过。
+- 未发现死代码或未使用的导入。
+- 覆盖率：总体 72.1%。
 
 ### v2.1.11 变更摘要（第十二轮深度审计 — 交叉审计清理）
 

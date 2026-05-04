@@ -90,8 +90,8 @@ func structPlan(s *schema.Schema, cols []string) [][]int {
 
 	spCache.mu.Lock()
 	if spCache.count >= maxStructPlanCacheEntries {
-		clear(spCache.items)
-		spCache.count = 0
+		evictRandom(spCache.items, spCache.count/4)
+		spCache.count = len(spCache.items)
 	}
 	if _, ok := spCache.items[key]; !ok {
 		spCache.items[key] = plan
@@ -99,6 +99,16 @@ func structPlan(s *schema.Schema, cols []string) [][]int {
 	}
 	spCache.mu.Unlock()
 	return plan
+}
+
+func evictRandom(m map[structPlanKey][][]int, n int) {
+	for k := range m {
+		delete(m, k)
+		n--
+		if n <= 0 {
+			break
+		}
+	}
 }
 
 func ScanAll(rows *sql.Rows, dest any) error {

@@ -699,6 +699,26 @@ err := e.Select("id", "name").
 
 ## Changelog
 
+### v2.1.12 (Thirteenth Round Deep Audit — Code Review & Best Practices)
+
+**Robustness:**
+- Added nested transaction depth limit (max 32) to prevent unbounded savepoint recursion and potential stack overflow.
+- Added `errSavepointDepth` sentinel error for depth limit exceeded.
+
+**Performance:**
+- Replaced cache eviction strategy from `clear()` (full flush) to random partial eviction (25%) in `scan/structPlanCache` and `schema/schemaCache` to reduce cache thrashing in long-lived processes.
+
+**Test Coverage:**
+- Added comprehensive tests for `UpdateBuilder.Where*` methods (`WhereEq`, `WhereIn`, `WhereLike`, `WhereMap`, `WhereSubquery`, `WhereInSubquery`, `WhereExpr`, `WhereNotIn`, `WhereBetween`, `WhereNotLike`, `WhereExists`, `WhereNotExists`, `MapsLowerKeys`).
+- Added `TestTxTransactionDepthLimit` to verify savepoint depth limit enforcement.
+- Coverage improved from 70.7% to 72.1% (builder: 64.5% → improved).
+
+**Audit Summary:**
+- `go vet` clean, all tests pass.
+- No dead code or unused imports found.
+- All `sync.Pool`, `sync.RWMutex` patterns verified correct.
+- Coverage: overall 72.1% (internal 100%, dialect 97.2%, schema 89.0%, engine 86.4%, clause 88.8%, scan 76.4%, builder improved).
+
 ### v2.1.11 (Twelfth Round Deep Audit — Cross-Audit Cleanup)
 
 **Dead Code Removal:**

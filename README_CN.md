@@ -675,6 +675,26 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
+### v2.1.12（第十三轮深度审计 — 代码评审与最佳实践）
+
+**健壮性增强：**
+- 添加嵌套事务深度限制（最大 32 层），防止无界 savepoint 递归和潜在的栈溢出。
+- 新增 `errSavepointDepth` 哨兵错误用于深度超限提示。
+
+**性能优化：**
+- 将缓存驱逐策略从 `clear()`（全量清空）改为随机部分淘汰（25%），应用于 `scan/structPlanCache` 和 `schema/schemaCache`，减少长生命周期进程中的缓存抖动。
+
+**测试覆盖：**
+- 为 `UpdateBuilder.Where*` 方法添加全面测试（`WhereEq`、`WhereIn`、`WhereLike`、`WhereMap`、`WhereSubquery`、`WhereInSubquery`、`WhereExpr`、`WhereNotIn`、`WhereBetween`、`WhereNotLike`、`WhereExists`、`WhereNotExists`、`MapsLowerKeys`）。
+- 新增 `TestTxTransactionDepthLimit` 验证 savepoint 深度限制。
+- 覆盖率从 70.7% 提升至 72.1%（builder 包覆盖率提升）。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过。
+- 未发现死代码或未使用的导入。
+- 所有 `sync.Pool`、`sync.RWMutex` 模式验证正确。
+- 覆盖率：总体 72.1%（internal 100%、dialect 97.2%、schema 89.0%、engine 86.4%、clause 88.8%、scan 76.4%、builder 提升）。
+
 ### v2.1.11（第十二轮深度审计 — 交叉审计清理）
 
 **死代码清理：**

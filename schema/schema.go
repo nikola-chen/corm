@@ -175,8 +175,8 @@ func ParseType(t reflect.Type) (*Schema, error) {
 
 	scCache.mu.Lock()
 	if scCache.count >= maxSchemaCacheEntries {
-		scCache.items = make(map[reflect.Type]*Schema, 256)
-		scCache.count = 0
+		evictSchemaRandom(scCache.items, scCache.count/4)
+		scCache.count = len(scCache.items)
 	}
 	if _, ok := scCache.items[t]; !ok {
 		scCache.items[t] = s
@@ -269,6 +269,16 @@ func appendIndex(parent []int, i int) []int {
 	copy(idx, parent)
 	idx[len(parent)] = i
 	return idx
+}
+
+func evictSchemaRandom(m map[reflect.Type]*Schema, n int) {
+	for k := range m {
+		delete(m, k)
+		n--
+		if n <= 0 {
+			break
+		}
+	}
 }
 
 func parseDBTag(tag string) (string, map[string]bool) {

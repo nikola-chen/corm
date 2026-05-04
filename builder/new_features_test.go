@@ -649,3 +649,214 @@ func TestUpdateInvalidLimit(t *testing.T) {
 		t.Errorf("expected no error for negative LIMIT (treated as no limit), got: %v", err)
 	}
 }
+
+func TestUpdateWhereMethods(t *testing.T) {
+	bd := builder.Postgres()
+
+	t.Run("WhereEq", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 1).WhereEq("id", 42)
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"id" = $2`) {
+			t.Errorf("missing WhereEq clause: %s", sqlStr)
+		}
+		if !reflect.DeepEqual(args, []any{1, 42}) {
+			t.Errorf("args mismatch: got %v", args)
+		}
+	})
+
+	t.Run("WhereIn", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 0).WhereIn("id", 1, 2, 3)
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"id" IN ($2, $3, $4)`) {
+			t.Errorf("missing WhereIn clause: %s", sqlStr)
+		}
+		if !reflect.DeepEqual(args, []any{0, 1, 2, 3}) {
+			t.Errorf("args mismatch: got %v", args)
+		}
+	})
+
+	t.Run("WhereLike", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 1).WhereLike("name", "%test%")
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"name" LIKE $2`) {
+			t.Errorf("missing WhereLike clause: %s", sqlStr)
+		}
+		if !reflect.DeepEqual(args, []any{1, "%test%"}) {
+			t.Errorf("args mismatch: got %v", args)
+		}
+	})
+
+	t.Run("WhereMap", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 1).WhereMap(map[string]any{"id": 10, "age": 20})
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, "WHERE") {
+			t.Errorf("missing WHERE clause: %s", sqlStr)
+		}
+		if len(args) != 3 {
+			t.Errorf("expected 3 args, got %d: %v", len(args), args)
+		}
+	})
+
+	t.Run("WhereSubquery", func(t *testing.T) {
+		sub := bd.Select("user_id").From("banned")
+		q := bd.Update("users").Set("status", 0).WhereSubquery("id", "IN", sub)
+		sqlStr, _, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"id" IN (SELECT`) {
+			t.Errorf("missing WhereSubquery clause: %s", sqlStr)
+		}
+	})
+
+	t.Run("WhereInSubquery", func(t *testing.T) {
+		sub := bd.Select("user_id").From("banned")
+		q := bd.Update("users").Set("status", 0).WhereInSubquery("id", sub)
+		sqlStr, _, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"id" IN (SELECT`) {
+			t.Errorf("missing WhereInSubquery clause: %s", sqlStr)
+		}
+	})
+
+	t.Run("WhereExpr", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 1).WhereExpr(clause.Raw(`"age" > ?`, 18))
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"age" > $2`) {
+			t.Errorf("missing WhereExpr clause: %s", sqlStr)
+		}
+		if !reflect.DeepEqual(args, []any{1, 18}) {
+			t.Errorf("args mismatch: got %v", args)
+		}
+	})
+
+	t.Run("WhereNotIn", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 1).WhereNotIn("role", 4, 5)
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"role" NOT IN ($2, $3)`) {
+			t.Errorf("missing WhereNotIn clause: %s", sqlStr)
+		}
+		if !reflect.DeepEqual(args, []any{1, 4, 5}) {
+			t.Errorf("args mismatch: got %v", args)
+		}
+	})
+
+	t.Run("WhereBetween", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 1).WhereBetween("age", 18, 60)
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"age" BETWEEN $2 AND $3`) {
+			t.Errorf("missing WhereBetween clause: %s", sqlStr)
+		}
+		if !reflect.DeepEqual(args, []any{1, 18, 60}) {
+			t.Errorf("args mismatch: got %v", args)
+		}
+	})
+
+	t.Run("WhereNotLike", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 1).WhereNotLike("name", "%admin%")
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, `"name" NOT LIKE $2`) {
+			t.Errorf("missing WhereNotLike clause: %s", sqlStr)
+		}
+		if !reflect.DeepEqual(args, []any{1, "%admin%"}) {
+			t.Errorf("args mismatch: got %v", args)
+		}
+	})
+
+	t.Run("WhereExists", func(t *testing.T) {
+		sub := bd.Select().SelectExpr(clause.Raw("1")).From("active").Where(`"active"."user_id" = "users"."id"`)
+		q := bd.Update("users").Set("status", 1).WhereExists(sub)
+		sqlStr, _, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, "EXISTS (SELECT") {
+			t.Errorf("missing WhereExists clause: %s", sqlStr)
+		}
+	})
+
+	t.Run("WhereNotExists", func(t *testing.T) {
+		sub := bd.Select().SelectExpr(clause.Raw("1")).From("banned").Where(`"banned"."user_id" = "users"."id"`)
+		q := bd.Update("users").Set("status", 1).WhereNotExists(sub)
+		sqlStr, _, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, "NOT EXISTS (SELECT") {
+			t.Errorf("missing WhereNotExists clause: %s", sqlStr)
+		}
+	})
+
+	t.Run("MapsLowerKeys", func(t *testing.T) {
+		rows := []map[string]any{
+			{"id": 1, "name": "alice"},
+			{"id": 2, "name": "bob"},
+		}
+		q := bd.Update("users").MapsLowerKeys(rows)
+		sqlStr, _, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, "UPDATE") {
+			t.Errorf("missing UPDATE: %s", sqlStr)
+		}
+	})
+}
+
+func TestUpdateWhereMethodsMySQL(t *testing.T) {
+	bd := builder.MySQL()
+
+	t.Run("WhereIn", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 0).WhereIn("id", 1, 2)
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, "`id` IN (?, ?)") {
+			t.Errorf("missing WhereIn clause: %s", sqlStr)
+		}
+		if !reflect.DeepEqual(args, []any{0, 1, 2}) {
+			t.Errorf("args mismatch: got %v", args)
+		}
+	})
+
+	t.Run("WhereMap", func(t *testing.T) {
+		q := bd.Update("users").Set("status", 1).WhereMap(map[string]any{"id": 5})
+		sqlStr, args, err := q.SQL()
+		if err != nil {
+			t.Fatalf("SQL() error: %v", err)
+		}
+		if !strings.Contains(sqlStr, "WHERE") {
+			t.Errorf("missing WHERE: %s", sqlStr)
+		}
+		if len(args) != 2 {
+			t.Errorf("expected 2 args, got %d: %v", len(args), args)
+		}
+	})
+}

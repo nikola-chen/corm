@@ -404,6 +404,42 @@ func TestTxTransactionSuccess(t *testing.T) {
 	}
 }
 
+func TestTxTransactionDepthLimit(t *testing.T) {
+	db := openEngineTestDB(t)
+	e, err := WithDB(db, engineTestDriverName)
+	if err != nil {
+		t.Fatalf("WithDB error: %v", err)
+	}
+	defer e.Close()
+
+	ctx := context.Background()
+	tx, err := e.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx error: %v", err)
+	}
+	defer tx.Rollback()
+
+	var depth int
+	var lastErr error
+	var recurse func(*Tx) error
+	recurse = func(tx *Tx) error {
+		depth++
+		if depth > maxSavepointDepth+5 {
+			return errors.New("should have been stopped by depth limit")
+		}
+		return tx.Transaction(ctx, func(inner *Tx) error {
+			return recurse(inner)
+		})
+	}
+	lastErr = recurse(tx)
+	if lastErr == nil {
+		t.Fatal("expected depth limit error, got nil")
+	}
+	if !errors.Is(lastErr, errSavepointDepth) {
+		t.Fatalf("expected errSavepointDepth, got: %v", lastErr)
+	}
+}
+
 func TestTxTransactionRollback(t *testing.T) {
 	db := openEngineTestDB(t)
 	e, err := WithDB(db, engineTestDriverName)

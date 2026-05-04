@@ -11,6 +11,8 @@ import (
 	"github.com/nikola-chen/corm/dialect"
 )
 
+const maxSavepointDepth = 32
+
 // Tx wraps a database transaction.
 //
 // Tx is not safe for concurrent use by multiple goroutines.
@@ -20,6 +22,7 @@ type Tx struct {
 	logger       Logger
 	cfg          Config
 	savepointSeq int
+	depth        int
 }
 
 func (e *Engine) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
@@ -38,20 +41,27 @@ func (t *Tx) Rollback() error { return t.tx.Rollback() }
 //
 // Tx is not safe for concurrent use. Do not call Transaction concurrently on the same Tx.
 func (t *Tx) Transaction(ctx context.Context, fn func(*Tx) error) (err error) {
+	t.depth++
+	if t.depth > maxSavepointDepth {
+		t.depth--
+		return errSavepointDepth
+	}
+
 	t.savepointSeq++
 	name := fmt.Sprintf("sp_%d", t.savepointSeq)
 
 	if !isValidSavepointName(name) {
+		t.depth--
 		return fmt.Errorf("corm: invalid savepoint name: %s", name)
 	}
 
-	// Note: Not all databases support SAVEPOINT.
-	// We assume standard SQL behavior (Postgres, MySQL).
 	if _, err := t.tx.ExecContext(ctx, "SAVEPOINT "+name); err != nil {
+		t.depth--
 		return err
 	}
 
 	defer func() {
+		t.depth--
 		if p := recover(); p != nil {
 			if rbErr := t.rollbackTo(ctx, name); rbErr != nil && t.logger != nil {
 				t.logger.Printf("corm: rollback to savepoint failed name=%s err=%v", name, rbErr)
