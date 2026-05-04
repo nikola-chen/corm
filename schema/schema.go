@@ -134,8 +134,8 @@ func cachedTableName(t reflect.Type) string {
 
 	tnCache.mu.Lock()
 	if tnCache.count >= maxTableNameCacheEntries {
-		clear(tnCache.items)
-		tnCache.count = 0
+		evictTableNameRandom(tnCache.items, tnCache.count/4)
+		tnCache.count = len(tnCache.items)
 	}
 	if _, ok := tnCache.items[t]; !ok {
 		tnCache.items[t] = name
@@ -344,6 +344,16 @@ func appendIndex(parent []int, i int) []int {
 }
 
 func evictSchemaRandom(m map[reflect.Type]*Schema, n int) {
+	for k := range m {
+		delete(m, k)
+		n--
+		if n <= 0 {
+			break
+		}
+	}
+}
+
+func evictTableNameRandom(m map[reflect.Type]string, n int) {
 	for k := range m {
 		delete(m, k)
 		n--
