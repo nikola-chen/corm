@@ -1,6 +1,7 @@
 package corm_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/nikola-chen/corm/builder"
@@ -429,5 +430,42 @@ func BenchmarkSchemaParseComplex(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func BenchmarkTableNameOfCacheHit(b *testing.B) {
+	schema.TableNameOf(BenchUser{})
+	b.ResetTimer()
+	for b.Loop() {
+		_ = schema.TableNameOf(BenchUser{})
+	}
+}
+
+func BenchmarkTableNameOfNoNamerCacheHit(b *testing.B) {
+	type NoNamerModel struct {
+		ID   int    `db:"id,pk"`
+		Name string `db:"name"`
+	}
+	schema.TableNameOf(NoNamerModel{})
+	b.ResetTimer()
+	for b.Loop() {
+		_ = schema.TableNameOf(NoNamerModel{})
+	}
+}
+
+func BenchmarkTableNameOfParallel(b *testing.B) {
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = schema.TableNameOf(BenchUser{})
+		}
+	})
+}
+
+func BenchmarkLookupTableNameCacheHit(b *testing.B) {
+	t := reflect.TypeFor[BenchUser]()
+	schema.LookupTableName(t)
+	b.ResetTimer()
+	for b.Loop() {
+		_ = schema.LookupTableName(t)
 	}
 }

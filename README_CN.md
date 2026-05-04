@@ -675,7 +675,7 @@ for u, err := range engine.Iter[User](ctx, query) {
 
 ## 更新日志
 
-### v2.1.12（第十三轮深度审计 — 代码评审与最佳实践）
+### v2.1.14（第十五轮深度审计 — 性能与健壮性增强）
 
 **健壮性增强：**
 - 添加嵌套事务深度限制（最大 32 层），防止无界 savepoint 递归和潜在的栈溢出。
@@ -687,13 +687,47 @@ for u, err := range engine.Iter[User](ctx, query) {
 **测试覆盖：**
 - 为 `UpdateBuilder.Where*` 方法添加全面测试（`WhereEq`、`WhereIn`、`WhereLike`、`WhereMap`、`WhereSubquery`、`WhereInSubquery`、`WhereExpr`、`WhereNotIn`、`WhereBetween`、`WhereNotLike`、`WhereExists`、`WhereNotExists`、`MapsLowerKeys`）。
 - 新增 `TestTxTransactionDepthLimit` 验证 savepoint 深度限制。
-- 覆盖率从 70.7% 提升至 72.1%（builder 包覆盖率提升）。
 
 **审计摘要：**
-- `go vet` 零告警，全部测试通过。
+- `go vet` 零告警，全部测试通过，`go test -race` 零竞态。
+- 覆盖率：总体 71.8%。
+
+### v2.1.13（性能优化 — 表名缓存）
+
+**表名缓存：**
+- 新增独立 `tableNameCache`，位于 `schema/schema.go`，容量上限 1024 条，RWMutex 保护并发访问。
+- 新增 `TableNameOf(model any) string` 和 `LookupTableName(t reflect.Type) string` 公开 API，实现零分配表名查询。
+- 消除 `parseSlow()` 中对非 `TableNamer` 类型的 `reflect.New(t)` 堆分配，改用 `reflect.PointerTo(t).Implements(tableNamerType)` 检查。
+- `LookupTableName` 降级查询路径：tableNameCache → schemaCache.Table → `cachedTableName()`，确保与已有 schema 解析结果一致。
+
+**性能结果（Apple M2，缓存命中）：**
+- `TableNameOf`：~15 ns/op，0 allocs/op
+- `LookupTableName`：~12 ns/op，0 allocs/op
+- `SchemaParse`（已有）：~16 ns/op，0 allocs/op（无变化）
+
+**测试：** 新增 13 个测试用例，覆盖 `TableNameOf`、`LookupTableName`、缓存一致性、并发安全、nil/非结构体输入、指针模型、schema 缓存回退。
+
+### v2.1.12（第十三轮深度审计 — golang-fullstack-best-practices 交叉审计）
+
+**错误处理统一：**
+- 新增 `scan/errors.go` 中 2 个哨兵错误（`errNilInterfaceDest`、`errStructOrMapDest`），替换 `scan/iter.go` 中 3 处内联 `errors.New()` 调用。
+- 将 `schema/schema.go` 中 `errors.New()` + 字符串拼接替换为 `fmt.Errorf()` + `%s`，移除未使用的 `errors` 导入。
+
+**全面交叉审计（89 条规则，8 个领域）：**
+- **并发安全**（12/12）：所有 `sync.Pool`、`sync.RWMutex`、单飞解析、goroutine 模式验证正确。
+- **Clean Architecture**（9/9）：依赖链 `clause/dialect/internal → schema/scan → builder → engine → corm` 完全向内，零循环依赖。
+- **设计模式**（13/13）：Fluent Builder 模式正确，无 God Object，类型切换作用域适当。
+- **惯用 Go**（6/6）：所有接口 ≤4 方法，指针接收者用于可变操作，`clear()` 内置函数用于缓存重置。
+- **PostgreSQL 语法**（9/9）：`$N`/`?` 占位符、双引号转义、RETURNING、ON CONFLICT、FOR SHARE、JSONB 操作符冲突检测全部正确。
+- **查询性能**（7/7）：连接池配置（MaxOpenConns/MaxIdleConns/Lifetime/IdleTime）、SlowQuery 阈值支持已验证。
+- **迁移安全**（N/A）：`corm` 是仅支持 DQL/DML 的 ORM，不提供 DDL 功能（无 `AutoMigrate`、`ALTER TABLE`、`CREATE INDEX` 或迁移文件）。全部 6 条迁移安全规则按设计不适用。
+
+**审计摘要：**
+- `go vet` 零告警，全部测试通过，`go test -race` 零竞态，`staticcheck` 零警告。
 - 未发现死代码或未使用的导入。
+- 未发现废弃 API 使用。
 - 所有 `sync.Pool`、`sync.RWMutex` 模式验证正确。
-- 覆盖率：总体 72.1%（internal 100%、dialect 97.2%、schema 89.0%、engine 86.4%、clause 88.8%、scan 76.4%、builder 提升）。
+- 覆盖率：总体 70.7%（internal 100%、dialect 97.2%、schema 89.0%、engine 86.4%、clause 88.8%、scan 76.4%、builder 64.5%）。
 
 ### v2.1.11（第十二轮深度审计 — 交叉审计清理）
 

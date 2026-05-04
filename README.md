@@ -699,7 +699,7 @@ err := e.Select("id", "name").
 
 ## Changelog
 
-### v2.1.12 (Thirteenth Round Deep Audit — Code Review & Best Practices)
+### v2.1.14 (Fifteenth Round Deep Audit — Performance & Robustness)
 
 **Robustness:**
 - Added nested transaction depth limit (max 32) to prevent unbounded savepoint recursion and potential stack overflow.
@@ -711,13 +711,47 @@ err := e.Select("id", "name").
 **Test Coverage:**
 - Added comprehensive tests for `UpdateBuilder.Where*` methods (`WhereEq`, `WhereIn`, `WhereLike`, `WhereMap`, `WhereSubquery`, `WhereInSubquery`, `WhereExpr`, `WhereNotIn`, `WhereBetween`, `WhereNotLike`, `WhereExists`, `WhereNotExists`, `MapsLowerKeys`).
 - Added `TestTxTransactionDepthLimit` to verify savepoint depth limit enforcement.
-- Coverage improved from 70.7% to 72.1% (builder: 64.5% → improved).
 
 **Audit Summary:**
-- `go vet` clean, all tests pass.
+- `go vet` clean, all tests pass, `go test -race` clean.
+- Coverage: overall 71.8%.
+
+### v2.1.13 (Performance Optimization — Table Name Caching)
+
+**Table Name Cache:**
+- Added independent `tableNameCache` in `schema/schema.go` with bounded capacity (1024 entries) and RWMutex-protected concurrent access.
+- Added `TableNameOf(model any) string` and `LookupTableName(t reflect.Type) string` public API for zero-allocation table name lookup.
+- Eliminated `reflect.New(t)` heap allocation in `parseSlow()` for non-`TableNamer` types by using `reflect.PointerTo(t).Implements(tableNamerType)` check.
+- `LookupTableName` falls through: tableNameCache → schemaCache.Table → `cachedTableName()`, ensuring consistency with existing schema parse results.
+
+**Performance Results (Apple M2, cache hit):**
+- `TableNameOf`: ~15 ns/op, 0 allocs/op
+- `LookupTableName`: ~12 ns/op, 0 allocs/op
+- `SchemaParse` (existing): ~16 ns/op, 0 allocs/op (unchanged)
+
+**Tests:** 13 new test cases covering `TableNameOf`, `LookupTableName`, cache consistency, concurrent safety, nil/non-struct inputs, pointer models, and schema cache fallback.
+
+### v2.1.12 (Thirteenth Round Deep Audit — golang-fullstack-best-practices Cross-Audit)
+
+**Error Handling Unification:**
+- Added 2 new sentinel errors in `scan/errors.go` (`errNilInterfaceDest`, `errStructOrMapDest`) and replaced 3 inline `errors.New()` calls in `scan/iter.go`.
+- Replaced `errors.New()` + string concatenation with `fmt.Errorf()` + `%s` in `schema/schema.go`, removing unused `errors` import.
+
+**Comprehensive Cross-Audit (89 rules, 8 domains):**
+- **Concurrency Safety** (12/12): All `sync.Pool`, `sync.RWMutex`, single-flight parsing, goroutine patterns verified correct.
+- **Clean Architecture** (9/9): Dependency chain `clause/dialect/internal → schema/scan → builder → engine → corm` fully inward, zero circular dependencies.
+- **Design Patterns** (13/13): Fluent Builder pattern correct, no God Objects, type switches appropriately scoped.
+- **Idiomatic Go** (6/6): All interfaces ≤4 methods, pointer receivers for mutations, `clear()` builtin used for cache reset.
+- **PostgreSQL Syntax** (9/9): `$N`/`?` placeholders, double-quote escaping, RETURNING, ON CONFLICT, FOR SHARE, JSONB operator conflict detection all correct.
+- **Query Performance** (7/7): Connection pool config (MaxOpenConns/MaxIdleConns/Lifetime/IdleTime), SlowQuery threshold support verified.
+- **Migration Safety** (N/A): `corm` is a DQL/DML-only ORM with no DDL support (no `AutoMigrate`, `ALTER TABLE`, `CREATE INDEX`, or migration files). All 6 migration-safety rules are not applicable by design.
+
+**Audit Summary:**
+- `go vet` clean, all tests pass, `go test -race` clean, `staticcheck` zero warnings.
 - No dead code or unused imports found.
+- No deprecated API usage detected.
 - All `sync.Pool`, `sync.RWMutex` patterns verified correct.
-- Coverage: overall 72.1% (internal 100%, dialect 97.2%, schema 89.0%, engine 86.4%, clause 88.8%, scan 76.4%, builder improved).
+- Coverage: overall 70.7% (internal 100%, dialect 97.2%, schema 89.0%, engine 86.4%, clause 88.8%, scan 76.4%, builder 64.5%).
 
 ### v2.1.11 (Twelfth Round Deep Audit — Cross-Audit Cleanup)
 

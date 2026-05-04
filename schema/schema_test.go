@@ -720,3 +720,167 @@ func TestToSnakeGreek(t *testing.T) {
 		}
 	}
 }
+
+func TestTableNameOf(t *testing.T) {
+	type TableNameModel struct {
+		ID int `db:"id,pk"`
+	}
+
+	got := schema.TableNameOf(TableNameModel{})
+	if got != "table_name_model" {
+		t.Errorf("TableNameOf(TableNameModel{}) = %q, want %q", got, "table_name_model")
+	}
+
+	got = schema.TableNameOf(&TableNameModel{})
+	if got != "table_name_model" {
+		t.Errorf("TableNameOf(&TableNameModel{}) = %q, want %q", got, "table_name_model")
+	}
+}
+
+func TestTableNameOfWithTableNamer(t *testing.T) {
+	got := schema.TableNameOf(User{})
+	if got != "users" {
+		t.Errorf("TableNameOf(User{}) = %q, want %q", got, "users")
+	}
+
+	got = schema.TableNameOf(&User{})
+	if got != "users" {
+		t.Errorf("TableNameOf(&User{}) = %q, want %q", got, "users")
+	}
+}
+
+func TestTableNameOfNil(t *testing.T) {
+	got := schema.TableNameOf(nil)
+	if got != "" {
+		t.Errorf("TableNameOf(nil) = %q, want %q", got, "")
+	}
+}
+
+func TestTableNameOfNonStruct(t *testing.T) {
+	got := schema.TableNameOf(42)
+	if got != "" {
+		t.Errorf("TableNameOf(42) = %q, want %q", got, "")
+	}
+
+	got = schema.TableNameOf("string")
+	if got != "" {
+		t.Errorf("TableNameOf(string) = %q, want %q", got, "")
+	}
+}
+
+func TestLookupTableName(t *testing.T) {
+	type LookupModel struct {
+		ID int `db:"id,pk"`
+	}
+
+	got := schema.LookupTableName(reflect.TypeFor[LookupModel]())
+	if got != "lookup_model" {
+		t.Errorf("LookupTableName(LookupModel) = %q, want %q", got, "lookup_model")
+	}
+}
+
+func TestLookupTableNameWithTableNamer(t *testing.T) {
+	got := schema.LookupTableName(reflect.TypeFor[User]())
+	if got != "users" {
+		t.Errorf("LookupTableName(User) = %q, want %q", got, "users")
+	}
+}
+
+func TestLookupTableNameNil(t *testing.T) {
+	got := schema.LookupTableName(nil)
+	if got != "" {
+		t.Errorf("LookupTableName(nil) = %q, want %q", got, "")
+	}
+}
+
+func TestLookupTableNameNonStruct(t *testing.T) {
+	got := schema.LookupTableName(reflect.TypeFor[string]())
+	if got != "" {
+		t.Errorf("LookupTableName(string) = %q, want %q", got, "")
+	}
+}
+
+func TestTableNameCacheConsistentWithSchema(t *testing.T) {
+	type ConsistentModel struct {
+		ID int `db:"id,pk"`
+	}
+
+	s, err := schema.Parse(ConsistentModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	tableName := schema.TableNameOf(ConsistentModel{})
+	if tableName != s.Table {
+		t.Errorf("TableNameOf = %q, Schema.Table = %q, want match", tableName, s.Table)
+	}
+}
+
+func TestTableNameCacheHit(t *testing.T) {
+	type CacheHitModel struct {
+		ID int `db:"id,pk"`
+	}
+
+	first := schema.TableNameOf(CacheHitModel{})
+	for i := range 10 {
+		got := schema.TableNameOf(CacheHitModel{})
+		if got != first {
+			t.Errorf("TableNameOf iteration %d = %q, want %q", i, got, first)
+		}
+	}
+}
+
+func TestTableNameOfConcurrent(t *testing.T) {
+	type ConcurrentTNModel struct {
+		ID   int    `db:"id,pk"`
+		Name string `db:"name"`
+	}
+
+	const n = 64
+	results := make([]string, n)
+	errs := make([]error, n)
+
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			results[i] = schema.TableNameOf(ConcurrentTNModel{})
+		}(i)
+	}
+	wg.Wait()
+
+	for i, r := range results {
+		if r != "concurrent_tn_model" {
+			t.Errorf("TableNameOf at %d = %q, want %q", i, r, "concurrent_tn_model")
+		}
+		_ = errs[i]
+	}
+}
+
+func TestLookupTableNameFromSchemaCache(t *testing.T) {
+	type SchemaCachedModel struct {
+		ID int `db:"id,pk"`
+	}
+
+	_, err := schema.Parse(SchemaCachedModel{})
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	got := schema.LookupTableName(reflect.TypeFor[SchemaCachedModel]())
+	if got != "schema_cached_model" {
+		t.Errorf("LookupTableName = %q, want %q", got, "schema_cached_model")
+	}
+}
+
+func TestTableNameOfEmptyTableName(t *testing.T) {
+	type EmptyTNModel struct {
+		ID int `db:"id,pk"`
+	}
+
+	got := schema.TableNameOf(EmptyTNModel{})
+	if got != "empty_tn_model" {
+		t.Errorf("TableNameOf(EmptyTNModel{}) = %q, want %q", got, "empty_tn_model")
+	}
+}
